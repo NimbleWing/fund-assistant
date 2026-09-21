@@ -32,7 +32,7 @@ describe('Records', () => {
     render(<Records />);
     await screen.findByText('6-23');
     expect(screen.getAllByText('-318.63')).toHaveLength(2); // 汇总卡 + 表格行
-    expect(screen.getByText('持有中')).toBeTruthy();
+    await screen.findByTitle(/持有中/); // 持有行（净值默认已填，显示浮动盈亏）
     expect(screen.getAllByText('2000.00').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -48,6 +48,8 @@ describe('Records', () => {
     expect(screen.getByText('+2180.00')).toBeTruthy();
     // 回本净值展示
     expect(screen.getByText(/摊薄口径 3\.0000 · 账户回本 6\.0000/)).toBeTruthy();
+    // 持有行（637.82 份 × 3.68 − 2000 = +347.18）
+    expect(screen.getByText('+347.18')).toBeTruthy();
   });
 
   it('未匹配卖出提示', async () => {

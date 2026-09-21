@@ -15,6 +15,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
 /** 带符号金额；正红负绿零灰 */
 function pnlValue(v: number): { text: string; cls: string } {
   if (v > 0) return { text: `+${fmt(v)}`, cls: 'text-up' };
@@ -22,8 +26,16 @@ function pnlValue(v: number): { text: string; cls: string } {
   return { text: '0.00', cls: 'text-dim' };
 }
 
-function pnlCell(row: PairRow): { text: string; cls: string } {
-  if (row.pnl == null) return { text: '持有中', cls: 'text-dim' };
+function pnlCell(row: PairRow, nav: number | null): { text: string; cls: string; title?: string } {
+  if (row.pnl == null) {
+    // 持有中：最新净值有效时显示该笔浮动盈亏（份额×最新净值−本金）
+    if (nav != null && nav > 0) {
+      const pnl = round2(row.shares * nav - row.principal);
+      const v = pnlValue(pnl);
+      return { ...v, cls: `${v.cls} font-semibold`, title: '持有中 · 按最新净值的浮动盈亏' };
+    }
+    return { text: '持有中', cls: 'text-dim' };
+  }
   if (row.pnl > 0) return { text: `+${fmt(row.pnl)}`, cls: 'text-up font-semibold' };
   if (row.pnl < 0) return { text: fmt(row.pnl), cls: 'text-down font-semibold' };
   return { text: '0.00', cls: 'text-dim' };
@@ -42,12 +54,17 @@ export function Records() {
     void refresh();
   }, [refresh]);
 
-  // 最新净值默认值：上次输入（localStorage）→ 最后一条卖出净值 → 空
+  // 最新净值默认值：上次输入（localStorage，归一化到 4 位）→ 最后一条卖出净值 → 空
   useEffect(() => {
     if (navInit.current || data?.ok !== true) return;
     navInit.current = true;
     const saved = localStorage.getItem(NAV_KEY);
-    setNavText(saved ?? (data.latestSellNav != null ? String(data.latestSellNav) : ''));
+    if (saved != null) {
+      const n = Number(saved);
+      setNavText(Number.isFinite(n) && n > 0 ? String(round4(n)) : saved);
+    } else {
+      setNavText(data.latestSellNav != null ? String(data.latestSellNav) : '');
+    }
   }, [data]);
 
   if (!data) {
@@ -105,6 +122,19 @@ export function Records() {
               localStorage.setItem(NAV_KEY, e.target.value);
             } catch {
               // localStorage 不可用时仅内存态
+            }
+          }}
+          onBlur={(e) => {
+            // 失焦归一化到 4 位小数（消除数字输入框步进按钮产生的浮点噪声）
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v > 0) {
+              const norm = String(round4(v));
+              setNavText(norm);
+              try {
+                localStorage.setItem(NAV_KEY, norm);
+              } catch {
+                // localStorage 不可用时仅内存态
+              }
             }
           }}
         />
@@ -179,7 +209,7 @@ export function Records() {
           </thead>
           <tbody>
             {data.rows.map((row, i) => {
-              const pnl = pnlCell(row);
+              const pnl = pnlCell(row, hasNav ? nav : null);
               const holding = row.sellTime == null;
               return (
                 <tr key={i} className={holding ? 'opacity-70' : ''}>
@@ -189,7 +219,9 @@ export function Records() {
                   <td>{fmt(row.shares)}</td>
                   <td className={holding ? 'text-dim' : ''}>{row.sellTime ?? '—'}</td>
                   <td className={holding ? 'text-dim' : ''}>{row.sellNav != null ? row.sellNav.toFixed(4) : '—'}</td>
-                  <td className={pnl.cls}>{pnl.text}</td>
+                  <td className={pnl.cls} title={pnl.title}>
+                    {pnl.text}
+                  </td>
                 </tr>
               );
             })}
