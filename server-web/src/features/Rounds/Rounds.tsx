@@ -6,6 +6,7 @@ import {
   closeRound,
   createRound,
   deleteRoundTxn,
+  fetchFundNavs,
   fetchRounds,
   fetchWatchlist,
   type RoundData,
@@ -52,35 +53,79 @@ function MetricsGrid({ m }: { m: RoundMetrics }) {
 }
 
 interface TxnFormProps {
-  onSubmit: (txn: { direction: 'buy' | 'sell'; date: string; amount: number; nav: number; shares: number }) => Promise<string | null>;
+  /** 该基金的 净值日期→单位净值 映射（用于按时间自动匹配确认净值） */
+  navMap: Map<string, number>;
+  onSubmit: (txn: { direction: 'buy' | 'sell'; date: string; amount: number; nav: number; shares: number; fee: number }) => Promise<string | null>;
 }
 
-function TxnForm({ onSubmit }: TxnFormProps) {
+function TxnForm({ navMap, onSubmit }: TxnFormProps) {
   const [direction, setDirection] = useState<'buy' | 'sell'>('buy');
   const [date, setDate] = useState(today());
   const [amount, setAmount] = useState('');
   const [nav, setNav] = useState('');
   const [shares, setShares] = useState('');
+  const [fee, setFee] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const lastSuggested = useRef('');
+  const lastSuggestedShares = useRef('');
+  // 净值/回款被手改过则不再用建议值覆盖
+  const navTouched = useRef(false);
+  const amountTouched = useRef(false);
 
-  // 份额建议：金额 ÷ 净值（两位）；用户没手改过时自动跟随
-  const suggest = (a: string, n: string): string => {
+  // 份额建议（买入）：本金 ÷ 净值（两位）；用户没手改过时自动跟随
+  const suggestShares = (a: string, n: string): string => {
     const av = Number(a);
     const nv = Number(n);
     return Number.isFinite(av) && av > 0 && Number.isFinite(nv) && nv > 0 ? String(round2(av / nv)) : '';
   };
+  // 回款建议（卖出）：份额 × 净值 − 手续费（两位）；用户没手改过时自动跟随
+  const suggestProceeds = (s: string, n: string, f: string): string => {
+    const sv = Number(s);
+    const nv = Number(n);
+    const fv = f === '' ? 0 : Number(f);
+    if (!(Number.isFinite(sv) && sv > 0 && Number.isFinite(nv) && nv > 0)) return '';
+    if (!Number.isFinite(fv) || fv < 0) return '';
+    return String(Math.max(0, round2(sv * nv - fv)));
+  };
+  const onSharesNavFee = (s: string, n: string, f: string) => {
+    if (direction === 'sell' && !amountTouched.current) setAmount(suggestProceeds(s, n, f));
+  };
   const onAmountNav = (a: string, n: string) => {
-    const s = suggest(a, n);
-    if (shares === '' || shares === lastSuggested.current) setShares(s);
-    lastSuggested.current = s;
+    if (direction !== 'buy') return;
+    const s = suggestShares(a, n);
+    if (shares === '' || shares === lastSuggestedShares.current) setShares(s);
+    lastSuggestedShares.current = s;
   };
 
+  // 选择时间 → 自动匹配当日单位净值为确认净值；用户手改过则不覆盖
+  const onDateChange = (d: string) => {
+    setDate(d);
+    const hit = navMap.get(d);
+    if (hit != null && !navTouched.current) applyNav(String(hit));
+  };
+  const applyNav = (n: string) => {
+    setNav(n);
+    if (direction === 'buy') onAmountNav(amount, n);
+    else onSharesNavFee(shares, n, fee);
+  };
+  const onNavChange = (n: string) => {
+    navTouched.current = true;
+    applyNav(n);
+  };
+
+  // 净值历史晚于日期选择加载完成时，补偿一次自动匹配
+  useEffect(() => {
+    const hit = navMap.get(date);
+    if (hit != null && !navTouched.current) applyNav(String(hit));
+  }, [navMap]);
+
+  const navMiss = /^\d{4}-\d{2}-\d{2}$/.test(date) && !navMap.has(date);
+
   const submit = async () => {
-    const txn = { direction, date, amount: Number(amount), nav: Number(nav), shares: Number(shares) };
+    const txn = { direction, date, amount: Number(amount), nav: Number(nav), shares: Number(shares), fee: direction === 'sell' ? Number(fee) || 0 : 0 };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return setError('日期需为 YYYY-MM-DD');
     if (!(txn.amount > 0) || !(txn.nav > 0) || !(txn.shares > 0)) return setError('金额 / 净值 / 份额需为正数');
+    if (txn.fee < 0) return setError('手续费不能为负');
     setSubmitting(true);
     setError('');
     try {
@@ -90,7 +135,9 @@ function TxnForm({ onSubmit }: TxnFormProps) {
       } else {
         setAmount('');
         setShares('');
-        lastSuggested.current = '';
+        setFee('');
+        lastSuggestedShares.current = '';
+        amountTouched.current = false;
       }
     } finally {
       setSubmitting(false);
@@ -101,30 +148,62 @@ function TxnForm({ onSubmit }: TxnFormProps) {
     <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
       <label className="flex flex-col gap-1 text-xs text-dim">
         方向
-        <select value={direction} onChange={(e) => setDirection(e.target.value as 'buy' | 'sell')}>
+        <select
+          value={direction}
+          onChange={(e) => {
+            setDirection(e.target.value as 'buy' | 'sell');
+            setAmount('');
+            setShares('');
+            setFee('');
+            lastSuggestedShares.current = '';
+            amountTouched.current = false;
+          }}
+        >
           <option value="buy">买入</option>
           <option value="sell">卖出</option>
         </select>
       </label>
       <label className="flex flex-col gap-1 text-xs text-dim">
         {direction === 'buy' ? '买入时间' : '卖出时间'}
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      </label>
-      <label className="flex flex-col gap-1 text-xs text-dim">
-        {direction === 'buy' ? '本金' : '回款'}
-        <input type="number" min="0" step="0.01" className="w-28" value={amount} onChange={(e) => { setAmount(e.target.value); onAmountNav(e.target.value, nav); }} />
+        <input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-dim">
         确认净值
-        <input type="number" min="0" step="0.0001" className="w-28" value={nav} onChange={(e) => { setNav(e.target.value); onAmountNav(amount, e.target.value); }} />
+        <input type="number" min="0" step="0.0001" className="w-28" value={nav} onChange={(e) => onNavChange(e.target.value)} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-dim">
         确认份额
-        <input type="number" min="0" step="0.01" className="w-28" value={shares} onChange={(e) => setShares(e.target.value)} />
+        <input type="number" min="0" step="0.01" className="w-28" value={shares} onChange={(e) => { setShares(e.target.value); onSharesNavFee(e.target.value, nav, fee); }} />
+      </label>
+      {direction === 'sell' && (
+        <label className="flex flex-col gap-1 text-xs text-dim">
+          手续费
+          <input type="number" min="0" step="0.01" className="w-24" value={fee} placeholder="0" onChange={(e) => { setFee(e.target.value); onSharesNavFee(shares, nav, e.target.value); }} />
+        </label>
+      )}
+      <label className="flex flex-col gap-1 text-xs text-dim">
+        {direction === 'buy' ? '本金' : '回款（实际到账）'}
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          className="w-28"
+          value={amount}
+          onChange={(e) => {
+            if (direction === 'sell') {
+              amountTouched.current = true;
+              setAmount(e.target.value);
+            } else {
+              setAmount(e.target.value);
+              onAmountNav(e.target.value, nav);
+            }
+          }}
+        />
       </label>
       <button type="button" className="act act-primary" disabled={submitting} onClick={() => void submit()}>
         录入
       </button>
+      {navMiss && <span className="text-xs text-warn">该日期无净值记录（非交易日或未入库），请手动输入确认净值</span>}
       {error && <span className="text-xs text-err">{error}</span>}
     </div>
   );
@@ -134,6 +213,7 @@ export function Rounds() {
   const [funds, setFunds] = useState<WatchRow[]>([]);
   const [fundCode, setFundCode] = useState('');
   const [rounds, setRounds] = useState<RoundData[] | null>(null);
+  const [navMap, setNavMap] = useState<Map<string, number>>(new Map());
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -162,6 +242,17 @@ export function Rounds() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // 基金切换时加载净值历史，供录入表单按日期匹配确认净值
+  useEffect(() => {
+    if (!fundCode) {
+      setNavMap(new Map());
+      return;
+    }
+    void fetchFundNavs(fundCode).then((d) => {
+      setNavMap(d?.ok && d.rows ? new Map(d.rows.map((r) => [r.date, r.unitNav])) : new Map());
+    });
+  }, [fundCode]);
 
   const upsertRound = (round: RoundData) =>
     setRounds((prev) => (prev ?? []).some((r) => r.id === round.id) ? (prev ?? []).map((r) => (r.id === round.id ? round : r)) : [...(prev ?? []), round]);
@@ -234,7 +325,7 @@ export function Rounds() {
             </button>
           </div>
           <MetricsGrid m={active.metrics} />
-          <TxnForm onSubmit={(txn) => submitTxn(active.id, txn)} />
+          <TxnForm key={active.id} navMap={navMap} onSubmit={(txn) => submitTxn(active.id, txn)} />
           {active.txns.length > 0 && (
             <table className="tabular-nums">
               <thead>
@@ -244,6 +335,7 @@ export function Rounds() {
                   <th>{active.txns.some((t) => t.direction === 'sell') ? '金额（本金/回款）' : '金额'}</th>
                   <th>确认净值</th>
                   <th>确认份额</th>
+                  <th>手续费</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -255,6 +347,7 @@ export function Rounds() {
                     <td>{fmt(t.amount)}</td>
                     <td>{fmt4(t.nav)}</td>
                     <td>{fmt(t.shares)}</td>
+                    <td>{t.direction === 'sell' && t.fee > 0 ? fmt(t.fee) : '—'}</td>
                     <td>
                       <button type="button" className="act" onClick={() => void removeTxn(active.id, t.id)}>
                         删除
@@ -324,6 +417,7 @@ export function Rounds() {
                                 <td>{fmt(t.amount)}</td>
                                 <td>{fmt4(t.nav)}</td>
                                 <td>{fmt(t.shares)}</td>
+                                <td>{t.direction === 'sell' && t.fee > 0 ? `手续费 ${fmt(t.fee)}` : ''}</td>
                               </tr>
                             ))}
                           </tbody>

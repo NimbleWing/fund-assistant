@@ -25,7 +25,7 @@ function toResponse(round: RoundRow, txns: ReturnType<RoundsStore['listTxns']>, 
     createdAt: round.createdAt,
     closedAt: round.closedAt,
     metrics,
-    txns: txns.map((t) => ({ id: t.id, direction: t.direction, date: t.date, amount: t.amount, nav: t.nav, shares: t.shares })),
+    txns: txns.map((t) => ({ id: t.id, direction: t.direction, date: t.date, amount: t.amount, nav: t.nav, shares: t.shares, fee: t.fee })),
   };
 }
 
@@ -117,16 +117,18 @@ export function roundsRoutes(stores?: Stores): Route[] {
         const amount = Number(body?.amount);
         const navValue = Number(body?.nav);
         const shares = Number(body?.shares);
+        const fee = body?.fee == null ? 0 : Number(body.fee);
         if (!direction) throw new HttpError(400, 'direction 需为 buy 或 sell');
         if (!DATE_RE.test(date)) throw new HttpError(400, 'date 需为 YYYY-MM-DD 格式');
         if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'amount 需为正数');
         if (!Number.isFinite(navValue) || navValue <= 0) throw new HttpError(400, 'nav 需为正数');
         if (!Number.isFinite(shares) || shares <= 0) throw new HttpError(400, 'shares 需为正数');
+        if (!Number.isFinite(fee) || fee < 0) throw new HttpError(400, 'fee 需为非负数');
         if (direction === 'sell') {
           const { holdingShares } = calcRound(rounds().listTxns(round.id), null);
           if (shares > holdingShares + SHARE_EPS) throw new HttpError(400, `卖出份额超过当前持有（${holdingShares} 份）`);
         }
-        rounds().addTxn(round.id, { direction, date, amount, nav: navValue, shares });
+        rounds().addTxn(round.id, { direction, date, amount, nav: navValue, shares, fee });
         const { metrics, txns } = metricsOf(round);
         json(res, 200, { ok: true, round: toResponse(round, txns, metrics) });
       },

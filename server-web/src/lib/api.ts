@@ -210,12 +210,14 @@ export interface RoundTxn {
   direction: 'buy' | 'sell';
   /** 买入/卖出时间（=确认日） */
   date: string;
-  /** 本金（买）/ 回款（卖） */
+  /** 本金（买）/ 回款（卖，实际到账 = 份额×净值−手续费） */
   amount: number;
   /** 确认净值 */
   nav: number;
   /** 确认份额 */
   shares: number;
+  /** 手续费（仅卖出有意义，买入为 0） */
+  fee: number;
 }
 
 export interface RoundMetrics {

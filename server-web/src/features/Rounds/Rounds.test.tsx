@@ -23,12 +23,12 @@ function makeRound(over: Partial<RoundData> = {}): RoundData {
       holdingPrincipal: 1000, holdingShares: 500, dilutedCost: 1000, dilutedRealizedPnl: 0,
       latestNav: 3.722, marketValue: 1861, floatingPnl: 861, dilutedHoldingPnl: 861, totalPnl: 861,
     },
-    txns: [{ id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500 }],
+    txns: [{ id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0 }],
     ...over,
   };
 }
 
-/** URL 感知 stub：watchlist + rounds 路由；behavior 可覆盖 rounds GET 返回值。 */
+/** URL 感知 stub：watchlist + rounds + navs 路由；behavior 可覆盖 rounds GET 返回值。 */
 function stubApi(handler?: (url: string, init?: RequestInit) => Response | null) {
   vi.stubGlobal(
     'fetch',
@@ -38,6 +38,12 @@ function stubApi(handler?: (url: string, init?: RequestInit) => Response | null)
       if (custom) return custom;
       if (url.includes('/api/watchlist')) {
         return new Response(JSON.stringify({ ok: true, rows: [FUND] }), { status: 200 });
+      }
+      if (url.includes('/api/funds/018994/navs')) {
+        return new Response(
+          JSON.stringify({ ok: true, fund: FUND, rows: [{ id: 1, date: '2026-09-01', unitNav: 2, createdAt: '' }] }),
+          { status: 200 },
+        );
       }
       if (url.includes('/api/rounds')) {
         return new Response(JSON.stringify({ ok: true, rounds: [] }), { status: 200 });
@@ -113,6 +119,55 @@ describe('Rounds', () => {
     fireEvent.click(screen.getByRole('button', { name: '展开' }));
     await screen.findByRole('button', { name: '收起' });
     expect(screen.getAllByText('2026-09-01').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('选择买入时间自动匹配确认净值，输入本金自动算份额；无净值记录日期给出提示', async () => {
+    const round = makeRound({ txns: [] });
+    stubApi((url) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    // 选中有净值记录的日期 → 确认净值自动带出
+    fireEvent.change(screen.getByLabelText('买入时间'), { target: { value: '2026-09-01' } });
+    await vi.waitFor(() => expect((screen.getByLabelText('确认净值') as HTMLInputElement).value).toBe('2'));
+    // 输入本金 → 份额自动算
+    fireEvent.change(screen.getByLabelText('本金'), { target: { value: '1000' } });
+    expect((screen.getByLabelText('确认份额') as HTMLInputElement).value).toBe('500');
+    // 无净值记录的日期 → 提示手动输入
+    fireEvent.change(screen.getByLabelText('买入时间'), { target: { value: '2026-09-06' } });
+    await screen.findByText(/该日期无净值记录/);
+  });
+
+  it('卖出：手续费参与回款建议（份额 × 净值 − 手续费），随表单提交', async () => {
+    const round = makeRound(); // 持有 500 份
+    stubApi((url, init) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      if (url.includes('/txns') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ ok: true, round: makeRound() }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    fireEvent.change(screen.getByLabelText('方向'), { target: { value: 'sell' } });
+    fireEvent.change(screen.getByLabelText('卖出时间'), { target: { value: '2026-09-01' } });
+    await vi.waitFor(() => expect((screen.getByLabelText('确认净值') as HTMLInputElement).value).toBe('2'));
+    fireEvent.change(screen.getByLabelText('确认份额'), { target: { value: '500' } });
+    expect((screen.getByLabelText('回款（实际到账）') as HTMLInputElement).value).toBe('1000');
+    fireEvent.change(screen.getByLabelText('手续费'), { target: { value: '10' } });
+    expect((screen.getByLabelText('回款（实际到账）') as HTMLInputElement).value).toBe('990');
+    fireEvent.click(screen.getByRole('button', { name: '录入' }));
+    await vi.waitFor(() => {
+      const post = vi.mocked(fetch).mock.calls.find((c) => String(c[0]).includes('/txns') && (c[1] as RequestInit)?.method === 'POST');
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({ direction: 'sell', amount: 990, nav: 2, shares: 500, fee: 10 });
+    });
   });
 
   it('开轮按钮：有进行中轮时禁用', async () => {

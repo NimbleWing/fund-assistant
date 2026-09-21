@@ -1,6 +1,10 @@
-// rounds 单测：calcRound（FIFO 分批消耗 + 摊薄口径）、store 读写、路由全流程（开轮/录入/闭轮/校验）。
+// rounds 单测：calcRound（FIFO 分批消耗 + 摊薄口径）、store 读写（含 fee 迁移）、路由全流程（开轮/录入/闭轮/校验）。
+import { promises as fs } from 'node:fs';
 import type { Server } from 'node:http';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HttpError, json, type Route } from '../../lib/http.ts';
 import { openWatchStore } from '../watchlist/store.ts';
@@ -51,6 +55,26 @@ describe('calcRound', () => {
   it('清仓：持有归 0，总盈亏 = 已实现盈亏', () => {
     const m = calcRound([buy(1000, 2, 500), sell(1250, 2.5, 500)], 3);
     expect(m).toMatchObject({ holdingShares: 0, holdingPrincipal: 0, realizedPnl: 250, totalPnl: 250, marketValue: 0 });
+  });
+});
+
+describe('rounds store', () => {
+  it('round_txn fee 迁移：旧表无 fee 列时打开自动补列，存量行默认 0', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rounds-migrate-'));
+    const file = path.join(dir, 't.db');
+    try {
+      const db = new DatabaseSync(file);
+      db.exec(`CREATE TABLE round_txn(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, round_id INTEGER NOT NULL, direction TEXT NOT NULL,
+        date TEXT NOT NULL, amount REAL NOT NULL, nav REAL NOT NULL, shares REAL NOT NULL, created_at TEXT NOT NULL)`);
+      db.prepare("INSERT INTO round_txn(round_id, direction, date, amount, nav, shares, created_at) VALUES (1, 'sell', '2026-09-01', 1250, 2.5, 500, 't')").run();
+      db.close();
+      const s = openRoundsStore(file);
+      expect(s.listTxns(1)[0]?.fee).toBe(0);
+      s.close();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -120,13 +144,14 @@ describe('rounds routes', () => {
     // 重复开轮 → 400
     expect((await post('/api/rounds', { fundCode: '018994' })).status).toBe(400);
 
-    // 录入两笔买入一笔卖出（跨批次）
+    // 录入两笔买入一笔卖出（跨批次，卖出含手续费 5）
     await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500 });
     await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500 });
     const afterSell = (await (
-      await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-15', amount: 2250, nav: 3, shares: 750 })
-    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number } } };
+      await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-15', amount: 2250, nav: 3, shares: 750, fee: 5 })
+    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number }; txns: { fee: number }[] } };
     expect(afterSell.round.metrics).toMatchObject({ realizedPnl: 250, holdingShares: 250, latestNav: 3.722, totalPnl: 180.5 });
+    expect(afterSell.round.txns[2]?.fee).toBe(5); // 手续费已落库（回款为实际到账，盈亏不受影响）
 
     // 持有份额未归 0，闭轮 → 400
     expect((await post(`/api/rounds/${rid}/close`)).status).toBe(400);
