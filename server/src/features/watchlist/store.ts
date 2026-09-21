@@ -11,6 +11,8 @@ export interface WatchRow {
   code: string;
   name: string;
   type: string | null;
+  /** 1 关注中 / 0 已软删除 */
+  active: number;
   created_at: string;
   updated_at: string;
 }
@@ -46,13 +48,13 @@ export function openWatchStore(dbPath: string = DB_FILE): WatchStore {
   const db = new DatabaseSync(dbPath);
   db.exec(SCHEMA);
 
-  const stmtList = db.prepare('SELECT id, code, name, type, created_at, updated_at FROM watchlist WHERE active = 1 ORDER BY id');
+  const stmtList = db.prepare('SELECT id, code, name, type, active, created_at, updated_at FROM watchlist WHERE active = 1 ORDER BY id');
   const stmtUpsert = db.prepare(`
     INSERT INTO watchlist(code, name, type, created_at, updated_at, active)
     VALUES (?, ?, ?, ?, ?, 1)
     ON CONFLICT(code) DO UPDATE SET name = excluded.name, type = excluded.type, updated_at = excluded.updated_at, active = 1
   `);
-  const stmtGet = db.prepare('SELECT id, code, name, type, created_at, updated_at FROM watchlist WHERE code = ?');
+  const stmtGet = db.prepare('SELECT id, code, name, type, active, created_at, updated_at FROM watchlist WHERE code = ?');
   const stmtRemove = db.prepare('UPDATE watchlist SET active = 0, updated_at = ? WHERE code = ? AND active = 1');
 
   return {

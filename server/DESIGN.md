@@ -108,3 +108,19 @@
 - **手动补录**：`POST /api/funds/:code/nav {date, unitNav}`——code 须在关注列表（含软删除）；该日期已存在时不覆盖，返回 `{ok:true, inserted:false}` 由前端提示；校验 date 格式与 unitNav > 0。
 - 查询：`GET /api/funds/:code/navs` → 该基金全部净值（date 倒序），供管理页基金详情页展示。
 - 结构：`store.ts`（fund_nav 读写，:memory: 可注入）/ `fetch.ts`（lsjz 拉取 + 归一化，fetch 可注入）/ `sync.ts`（启动同步编排）/ `routes.ts`。
+
+## 11. 轮次（rounds/）
+
+轮（`domain_models/CONTEXT.md`）的录入与跟踪。两表（fund.db 内）：
+
+- `round`：`id` / `fund_code`（关联关注基金）/ `seq`（该基金内从 1 递增）/ `status`（`active` 进行中 / `closed` 已清仓）/ 清仓快照字段（`buy_count` `sell_count` `invested` `proceeds` `realized_pnl` `sold_principal` `total_pnl`，closed 时写入）/ `created_at` `closed_at`。
+- `round_txn`：`id` / `round_id` / `direction`（buy/sell）/ `date`（=确认日）/ `amount`（本金/回款）/ `nav`（确认净值）/ `shares`（确认份额）/ `created_at`。
+
+规则：
+
+- 开轮 `POST /api/rounds {fundCode}`：该基金须已关注（active）且无进行中轮。
+- 录入 `POST /api/rounds/:id/txns` / 删除 `DELETE /api/rounds/:id/txns/:txnId`：仅进行中轮；卖出份额不得超过当前持有份额。
+- 闭轮 `POST /api/rounds/:id/close`：**持有份额须归 0**（否则 400）；快照由服务端按交易重算写入，之后直接读快照。
+- `calc.ts` 纯逻辑：**逐笔配对用 FIFO 分批消耗**（允许一次卖出跨多笔买入，按份额比例消耗本金——比 records 的等份额配对更通用）；摊薄口径为移动平均（同 records）。指标：买入/卖出次数、总投入、累计回款、已实现盈亏、已卖本金、持有本金、持有份额 + 需最新净值的市值/浮动盈亏/持仓收益·摊薄/总盈亏（无净值记录时为 null）。
+- `GET /api/rounds?fund=code`：进行中轮动态计算（最新净值取 fund_nav 该基金最新一条），已清仓轮读快照；返回含各轮交易明细（前端展开用）。
+- buyAndSellRecord.txt（records 临时页）与轮次互不迁移，各自独立。

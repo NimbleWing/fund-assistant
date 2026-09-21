@@ -128,6 +128,8 @@ export interface WatchRow {
   code: string;
   name: string;
   type: string | null;
+  /** 1 关注中 / 0 已软删除（GET 列表只返回 1） */
+  active?: number;
   created_at: string;
   updated_at: string;
 }
@@ -199,4 +201,76 @@ export function addFundNav(code: string, date: string, unitNav: number): Promise
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ date, unitNav }),
   });
+}
+
+// ---- 轮次（round/round_txn 表；进行中动态计算，已清仓读快照） ----
+
+export interface RoundTxn {
+  id: number;
+  direction: 'buy' | 'sell';
+  /** 买入/卖出时间（=确认日） */
+  date: string;
+  /** 本金（买）/ 回款（卖） */
+  amount: number;
+  /** 确认净值 */
+  nav: number;
+  /** 确认份额 */
+  shares: number;
+}
+
+export interface RoundMetrics {
+  buyCount: number;
+  sellCount: number;
+  invested: number;
+  proceeds: number;
+  realizedPnl: number;
+  soldPrincipal: number;
+  holdingPrincipal: number;
+  holdingShares: number;
+  dilutedCost: number;
+  dilutedRealizedPnl: number;
+  latestNav: number | null;
+  marketValue: number | null;
+  floatingPnl: number | null;
+  dilutedHoldingPnl: number | null;
+  totalPnl: number | null;
+}
+
+export interface RoundData {
+  id: number;
+  fundCode: string;
+  seq: number;
+  status: 'active' | 'closed';
+  createdAt: string;
+  closedAt: string | null;
+  metrics: RoundMetrics;
+  txns: RoundTxn[];
+}
+
+export function fetchRounds(fundCode: string): Promise<{ ok: boolean; rounds?: RoundData[]; error?: string } | null> {
+  return callApi(`/api/rounds?fund=${encodeURIComponent(fundCode)}`);
+}
+
+export function createRound(fundCode: string): Promise<{ ok: boolean; round?: RoundData; error?: string } | null> {
+  return callApi('/api/rounds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fundCode }),
+  });
+}
+
+export function addRoundTxn(roundId: number, txn: Omit<RoundTxn, 'id'>): Promise<{ ok: boolean; round?: RoundData; error?: string } | null> {
+  return callApi(`/api/rounds/${roundId}/txns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(txn),
+  });
+}
+
+export function deleteRoundTxn(roundId: number, txnId: number): Promise<{ ok: boolean; round?: RoundData; error?: string } | null> {
+  return callApi(`/api/rounds/${roundId}/txns/${txnId}`, { method: 'DELETE' });
+}
+
+export function closeRound(roundId: number): Promise<{ ok: boolean; round?: RoundData; error?: string } | null> {
+  return callApi(`/api/rounds/${roundId}/close`, { method: 'POST' });
 }

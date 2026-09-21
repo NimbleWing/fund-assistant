@@ -8,11 +8,12 @@ import { Timeline } from '@/features/Timeline/Timeline';
 import { Funds } from '@/features/Funds/Funds';
 import { Watchlist } from '@/features/Watchlist/Watchlist';
 import { FundDetail } from '@/features/FundDetail/FundDetail';
+import { Rounds } from '@/features/Rounds/Rounds';
 import type { WatchRow } from '@/lib/api';
 
-// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析 / 过程回放 / 基金搜索 / 关注列表），
+// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析 / 过程回放 / 基金搜索 / 关注列表 / 轮次），
 // 服务心跳轮询（10s）结果显示于顶栏 headerExtra。
-type Tab = 'status' | 'records' | 'timeline' | 'funds' | 'watchlist';
+type Tab = 'status' | 'records' | 'timeline' | 'funds' | 'watchlist' | 'rounds';
 
 const icon = (path: ReactNode) => (
   <svg
@@ -80,6 +81,16 @@ const TABS = [
       </>,
     ),
   },
+  {
+    key: 'rounds',
+    label: '轮次',
+    icon: icon(
+      <>
+        <path d="M4.5 8a8 8 0 0 1 14-3.5M19.5 16a8 8 0 0 1-14 3.5" />
+        <path d="M18.5 1.5v3.5H15M5.5 22.5V19H9" />
+      </>,
+    ),
+  },
 ] as const satisfies readonly { key: Tab; label: string; icon: ReactNode }[];
 
 export default function App() {
@@ -125,6 +136,7 @@ export default function App() {
           {tab === 'timeline' && <Timeline />}
           {tab === 'funds' && <Funds />}
           {tab === 'watchlist' && <Watchlist onOpenFund={setSelectedFund} />}
+          {tab === 'rounds' && <Rounds />}
         </>
       )}
     </Layout>

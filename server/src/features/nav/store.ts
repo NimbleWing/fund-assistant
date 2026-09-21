@@ -29,6 +29,8 @@ export interface NavStore {
   insertIgnore(watchlistId: number, date: string, unitNav: number): boolean;
   /** 该基金某日净值是否已入库。 */
   hasDate(watchlistId: number, date: string): boolean;
+  /** 该基金最新一条净值；无记录为 null。 */
+  latestByFund(watchlistId: number): NavRow | null;
   close(): void;
 }
 
@@ -40,12 +42,14 @@ export function openNavStore(dbPath: string = DB_FILE): NavStore {
   const stmtList = db.prepare('SELECT id, date, unit_nav AS unitNav, created_at AS createdAt FROM fund_nav WHERE watchlist_id = ? ORDER BY date DESC');
   const stmtInsert = db.prepare('INSERT OR IGNORE INTO fund_nav(watchlist_id, unit_nav, date, created_at) VALUES (?, ?, ?, ?)');
   const stmtHas = db.prepare('SELECT 1 FROM fund_nav WHERE watchlist_id = ? AND date = ? LIMIT 1');
+  const stmtLatest = db.prepare('SELECT id, date, unit_nav AS unitNav, created_at AS createdAt FROM fund_nav WHERE watchlist_id = ? ORDER BY date DESC LIMIT 1');
 
   return {
     listByFund: (watchlistId) => stmtList.all(watchlistId) as unknown as NavRow[],
     insertIgnore: (watchlistId, date, unitNav) =>
       Number(stmtInsert.run(watchlistId, unitNav, date, new Date().toISOString()).changes) > 0,
     hasDate: (watchlistId, date) => stmtHas.get(watchlistId, date) != null,
+    latestByFund: (watchlistId) => (stmtLatest.get(watchlistId) as unknown as NavRow) ?? null,
     close: () => db.close(),
   };
 }
