@@ -102,12 +102,15 @@
 
 关注基金的单位净值历史落库。术语统一：第三方字段在抓取层归一化为领域术语（`FSRQ`→`date`、`DWJZ`→`unitNav`），库表/接口/前端一律用领域术语（`domain_models/CONTEXT.md`）。
 
-- 数据源：天天基金历史净值 `api.fund.eastmoney.com/f10/lsjz?fundCode={code}&pageIndex=1&pageSize=20`（需 `Referer: fundf10.eastmoney.com` 头；**每页上限 20 条**，故启动同步只覆盖最近约一个月，更早历史靠手动补录）。
+- 数据源：
+  - 关注时全量：天天基金 `fund.eastmoney.com/pingzhongdata/{code}.js` 的 `Data_netWorthTrend`（**单请求全量历史**；`x`=北京时间零点毫秒时间戳→`date`、`y`→`unitNav`，`equityReturn` 日涨幅暂不入库）。日期换算用 `x + 8h` 的 UTC 日期，不受服务器时区影响。
+  - 启动/轮询补最新：`api.fund.eastmoney.com/f10/lsjz?fundCode={code}&pageIndex=1&pageSize=20`（需 `Referer: fundf10.eastmoney.com` 头，每页上限 20 条）。
 - 表 `fund_nav`（fund.db 内）：`id` / `watchlist_id`（逻辑关联 watchlist.id，不启用 FK 约束——SQLite prepare 会校验被引用表存在，跨连接顺序敏感）/ `unit_nav REAL` / `date TEXT`（YYYY-MM-DD）/ `created_at`；`UNIQUE(watchlist_id, date)` 去重。
-- **启动同步**（`server.ts` listen 后异步执行，不阻塞启动）：按「期望净值日期」驱动——**20:00 前**期望上一交易日（周末回退到最近周五，节假日不识别），已入库则跳过，缺失则抓一次（一页 20 条足够覆盖）；**20:00 后**期望当日净值，缺失则立即抓一次，仍未公布则**每小时轮询**，直到当日净值入库或跨日（次日 0 点自动停止，下次启动重新判断）。基金间间隔 500ms 防限流，单只失败仅记日志。
-- **手动补录**：`POST /api/funds/:code/nav {date, unitNav}`——code 须在关注列表（含软删除）；该日期已存在时不覆盖，返回 `{ok:true, inserted:false}` 由前端提示；校验 date 格式与 unitNav > 0。
+- **关注即全量写入**：`POST /api/watchlist` 关注（含复活）成功后立即抓取全量历史落库（`INSERT OR IGNORE`），响应带 `navSynced`（插入条数；失败为 null，不影响关注本身）。
+- **启动同步**（`server.ts` listen 后异步执行，不阻塞启动）：按「期望净值日期」驱动——**20:00 前**期望上一交易日（周末回退到最近周五，节假日不识别），已入库则跳过，缺失则抓一次（**lsjz 第一页 20 条**，轻量，足以覆盖最近交易日）；**20:00 后**期望当日净值，缺失则立即抓一次，仍未公布则**每小时轮询**，直到当日净值入库或跨日（次日 0 点自动停止，下次启动重新判断）。基金间间隔 500ms 防限流，单只失败仅记日志。
+- **手动补录**（兜底，接口故障/数据缺失时用）：`POST /api/funds/:code/nav {date, unitNav}`——code 须在关注列表（含软删除）；该日期已存在时不覆盖，返回 `{ok:true, inserted:false}` 由前端提示；校验 date 格式与 unitNav > 0。
 - 查询：`GET /api/funds/:code/navs` → 该基金全部净值（date 倒序），供管理页基金详情页展示。
-- 结构：`store.ts`（fund_nav 读写，:memory: 可注入）/ `fetch.ts`（lsjz 拉取 + 归一化，fetch 可注入）/ `sync.ts`（启动同步编排）/ `routes.ts`。
+- 结构：`store.ts`（fund_nav 读写，:memory: 可注入）/ `fetch.ts`（pingzhongdata 拉取 + 归一化，fetch 可注入）/ `sync.ts`（单只同步 `syncFundNav` + 启动同步编排）/ `routes.ts`。
 
 ## 11. 轮次（rounds/）
 

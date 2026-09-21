@@ -11,7 +11,7 @@ const SUGGEST_BODY = {
 };
 
 function stubFetch(body: unknown, ok = true): FetchLike {
-  return vi.fn(async () => ({ ok, json: async () => body }));
+  return vi.fn(async () => ({ ok, json: async () => body, text: async () => String(body) }));
 }
 
 describe('normalizeSuggest', () => {

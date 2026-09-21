@@ -1,18 +1,29 @@
-// 关注基金列表接口：GET 列表 / POST 关注（幂等复活）/ DELETE 软删除。
+// 关注基金列表接口：GET 列表 / POST 关注（幂等复活 + 自动写入全量净值历史）/ DELETE 软删除。
 // store 可注入（测试用 :memory:）；默认惰性打开 server/fund.db（避免测试导入 app.ts 时误建库文件）。
 import { asRecord, HttpError, json, readJson, type Route } from '../../lib/http.ts';
 import { openWatchStore, type WatchStore } from './store.ts';
+import { openNavStore, type NavStore } from '../nav/store.ts';
+import { syncFundNav } from '../nav/sync.ts';
+import type { FetchLike } from '../funds/search.ts';
 
-export function watchlistRoutes(store?: WatchStore): Route[] {
-  let lazy: WatchStore | undefined = store;
-  const db = (): WatchStore => (lazy ??= openWatchStore());
+interface Stores {
+  watch?: WatchStore;
+  nav?: NavStore;
+  fetchImpl?: FetchLike;
+}
+
+export function watchlistRoutes(stores?: Stores): Route[] {
+  let lazyWatch: WatchStore | undefined = stores?.watch;
+  let lazyNav: NavStore | undefined = stores?.nav;
+  const watch = (): WatchStore => (lazyWatch ??= openWatchStore());
+  const nav = (): NavStore => (lazyNav ??= openNavStore());
 
   return [
     {
       method: 'GET',
       path: '/api/watchlist',
       handler: ({ res }) => {
-        json(res, 200, { ok: true, rows: db().list() });
+        json(res, 200, { ok: true, rows: watch().list() });
       },
     },
     {
@@ -24,14 +35,17 @@ export function watchlistRoutes(store?: WatchStore): Route[] {
         const name = typeof body?.name === 'string' ? body.name.trim() : '';
         if (!code || !name) throw new HttpError(400, 'code 与 name 不能为空');
         const type = typeof body?.type === 'string' && body.type.trim() ? body.type.trim() : null;
-        json(res, 200, { ok: true, row: db().add(code, name, type) });
+        const row = watch().add(code, name, type);
+        // 关注即写入全量净值历史；失败不阻塞关注本身（navSynced 为 null，前端可提示）
+        const navSynced = await syncFundNav(row, nav(), stores?.fetchImpl ?? fetch);
+        json(res, 200, { ok: true, row, navSynced });
       },
     },
     {
       method: 'DELETE',
       path: '/api/watchlist/:code',
       handler: ({ res, params }) => {
-        const removed = db().remove(params.code ?? '');
+        const removed = watch().remove(params.code ?? '');
         json(res, 200, { ok: true, removed });
       },
     },

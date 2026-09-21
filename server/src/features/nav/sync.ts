@@ -3,7 +3,7 @@
 // 仍未公布则每小时轮询，直到入库或跨日自动停止）。基金间间隔 500ms，单只失败仅记日志。
 import { openWatchStore, type WatchStore, type WatchRow } from '../watchlist/store.ts';
 import { openNavStore, type NavStore } from './store.ts';
-import { fetchNavHistory } from './fetch.ts';
+import { fetchLatestNavs, fetchNavHistory, type NavPoint } from './fetch.ts';
 import type { FetchLike } from '../funds/search.ts';
 
 const FUND_INTERVAL_MS = 500;
@@ -29,6 +29,21 @@ export interface NavSyncController {
   /** 首轮同步完成的 Promise（测试/观测用） */
   done: Promise<void>;
   stop(): void;
+}
+
+/** 抓取一只基金的全量历史并写入缺失日期（关注基金时调用）；远端失败返回 null（不抛错）。 */
+export async function syncFundNav(fund: WatchRow, nav: NavStore, fetchImpl: FetchLike = fetch): Promise<number | null> {
+  const points = await fetchNavHistory(fund.code, fetchImpl);
+  if (points == null) return null;
+  return insertPoints(nav, fund.id, points);
+}
+
+function insertPoints(nav: NavStore, watchlistId: number, points: NavPoint[]): number {
+  let inserted = 0;
+  for (const p of points) {
+    if (nav.insertIgnore(watchlistId, p.date, p.unitNav)) inserted += 1;
+  }
+  return inserted;
 }
 
 export function startNavSync(opts?: {
@@ -59,22 +74,20 @@ export function startNavSync(opts?: {
       pending.delete(f.id);
       return;
     }
-    const points = await fetchNavHistory(f.code, fetchImpl);
+    // 启动/轮询只补最新：lsjz 第一页（20 条）足以覆盖期望日期
+    const points = await fetchLatestNavs(f.code, fetchImpl);
     if (points == null) {
       log(`${f.code} ${f.name} 抓取失败（远端不可用或超时）`);
       pending.add(f.id);
       return;
     }
-    let inserted = 0;
-    for (const p of points) {
-      if (nav.insertIgnore(f.id, p.date, p.unitNav)) inserted += 1;
-    }
+    const inserted = insertPoints(nav, f.id, points);
     if (nav.hasDate(f.id, expected)) {
       pending.delete(f.id);
       log(`${f.code} ${f.name} 同步完成：新插入 ${inserted} 条（期望日期 ${expected} 已入库）`);
     } else {
       pending.add(f.id);
-      log(`${f.code} ${f.name} 已抓取 ${points.length} 条（新插入 ${inserted}），期望日期 ${expected} 尚未公布`);
+      log(`${f.code} ${f.name} 已抓取（新插入 ${inserted} 条），期望日期 ${expected} 尚未公布`);
     }
   };
 

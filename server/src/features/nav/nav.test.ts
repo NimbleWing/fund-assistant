@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { HttpError, json, type Route } from '../../lib/http.ts';
 import { openWatchStore, type WatchStore } from '../watchlist/store.ts';
 import { openNavStore, type NavStore } from './store.ts';
-import { normalizeLsjz } from './fetch.ts';
+import { normalizeLsjz, normalizeNetWorthTrend } from './fetch.ts';
 import { expectedLatestNavDate, startNavSync } from './sync.ts';
 import { navRoutes } from './routes.ts';
 
@@ -22,7 +22,7 @@ const LSJZ_BODY = {
 };
 
 function stubFetch(body: unknown = LSJZ_BODY, ok = true) {
-  return vi.fn(async () => ({ ok, json: async () => body }));
+  return vi.fn(async () => ({ ok, json: async () => body, text: async () => String(body) }));
 }
 
 describe('nav store', () => {
@@ -49,6 +49,24 @@ describe('normalizeLsjz', () => {
     expect(normalizeLsjz(null)).toEqual([]);
     expect(normalizeLsjz({})).toEqual([]);
     expect(normalizeLsjz({ Data: {} })).toEqual([]);
+  });
+});
+
+describe('normalizeNetWorthTrend', () => {
+  it('x（北京时间零点毫秒）→date、y→unitNav；时区无关', () => {
+    const text = 'var Data_netWorthTrend = [{"x":1789833600000,"y":3.68,"equityReturn":0.5},{"x":1789920000000,"y":3.722}];';
+    expect(normalizeNetWorthTrend(text)).toEqual([
+      { date: '2026-09-20', unitNav: 3.68 },
+      { date: '2026-09-21', unitNav: 3.722 },
+    ]);
+  });
+
+  it('提取失败/非法 JSON/脏行跳过', () => {
+    expect(normalizeNetWorthTrend('')).toEqual([]);
+    expect(normalizeNetWorthTrend('var Data_netWorthTrend = [非法];')).toEqual([]);
+    expect(normalizeNetWorthTrend('var Data_netWorthTrend = [{"x":0,"y":1},{"x":1789920000000,"y":0},{"x":1789920000000,"y":3.722}];')).toEqual([
+      { date: '2026-09-21', unitNav: 3.722 },
+    ]);
   });
 });
 
@@ -112,6 +130,7 @@ describe('startNavSync', () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       json: async () => (published ? BODY_WITH_TODAY : LSJZ_BODY),
+      text: async () => '',
     }));
     const ctrl = startNavSync({
       watchStore: watch,

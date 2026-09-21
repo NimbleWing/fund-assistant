@@ -4,7 +4,11 @@ import http from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HttpError, json, type Route } from '../../lib/http.ts';
 import { openWatchStore } from './store.ts';
+import { openNavStore } from '../nav/store.ts';
 import { watchlistRoutes } from './routes.ts';
+
+// 关注触发全量同步用的 pingzhongdata 桩（x=北京时间零点毫秒时间戳）
+const PZD_TEXT = 'var Data_netWorthTrend = [{"x":1789920000000,"y":3.722,"equityReturn":1.14},{"x":1789833600000,"y":3.68}];';
 
 describe('watchlist store', () => {
   it('关注 → 列表；重复关注幂等复活并刷新字段', () => {
@@ -39,10 +43,12 @@ describe('watchlist routes', () => {
   let server: Server;
   let base = '';
   const store = openWatchStore(':memory:');
+  const nav = openNavStore(':memory:');
+  const fetchImpl = async () => ({ ok: true, json: async () => ({}), text: async () => PZD_TEXT });
 
   beforeAll(async () => {
     // 极简分发：直接按 method+path 匹配（复用 app.ts 规则过重，这里只验证 handler 行为）
-    const routes: Route[] = watchlistRoutes(store);
+    const routes: Route[] = watchlistRoutes({ watch: store, nav, fetchImpl });
     server = http.createServer((req, res) => {
       void (async () => {
         try {
@@ -79,18 +85,22 @@ describe('watchlist routes', () => {
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     store.close();
+    nav.close();
   });
 
-  it('POST 关注 → GET 列表 → DELETE 软删除', async () => {
+  it('POST 关注 → GET 列表 → DELETE 软删除；关注即全量写入净值', async () => {
     const add = await fetch(`${base}/api/watchlist`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: '001003', name: '华夏债券C', type: '债券型-混合一级' }),
     });
     expect(add.status).toBe(200);
-    const added = (await add.json()) as { ok: boolean; row: { code: string } };
+    const added = (await add.json()) as { ok: boolean; row: { code: string; id: number }; navSynced: number | null };
     expect(added.ok).toBe(true);
     expect(added.row.code).toBe('001003');
+    // 关注触发了全量同步：桩数据两条均入库（x+8h → UTC 日期）
+    expect(added.navSynced).toBe(2);
+    expect(nav.listByFund(added.row.id).map((r) => `${r.date}@${r.unitNav}`)).toEqual(['2026-09-21@3.722', '2026-09-20@3.68']);
 
     const list = (await (await fetch(`${base}/api/watchlist`)).json()) as { ok: boolean; rows: unknown[] };
     expect(list.rows).toHaveLength(1);

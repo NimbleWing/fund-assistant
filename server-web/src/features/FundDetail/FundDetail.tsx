@@ -17,6 +17,7 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
   const [navText, setNavText] = useState('');
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [page, setPage] = useState(0);
 
   const refresh = useCallback(async () => {
     const d = await fetchFundNavs(fund.code);
@@ -30,7 +31,22 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
 
   useEffect(() => {
     void refresh();
+    setPage(0);
   }, [refresh]);
+
+  // 分页：客户端切片（全量已拉取，单基金历史量级 ~千条）
+  const PAGE_SIZE = 50;
+  const pageCount = rows != null ? Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) : 1;
+  const curPage = Math.min(page, pageCount - 1);
+  const pageRows = rows?.slice(curPage * PAGE_SIZE, (curPage + 1) * PAGE_SIZE) ?? [];
+  const [jumpText, setJumpText] = useState('');
+
+  const jumpTo = () => {
+    const n = Number(jumpText);
+    if (!Number.isInteger(n)) return;
+    setPage(Math.min(Math.max(n, 1), pageCount) - 1);
+    setJumpText('');
+  };
 
   const submit = async () => {
     const unitNav = Number(navText);
@@ -115,7 +131,7 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {pageRows.map((r) => (
                 <tr key={r.id}>
                   <td>{r.date}</td>
                   <td>{r.unitNav.toFixed(4)}</td>
@@ -123,6 +139,39 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
               ))}
             </tbody>
           </table>
+          {pageCount > 1 && (
+            <div className="sticky bottom-0 flex items-center gap-3 border-t border-line bg-surface px-4 py-2 text-[13px] text-dim">
+              <button type="button" className="act" disabled={curPage === 0} onClick={() => setPage(curPage - 1)}>
+                上一页
+              </button>
+              <span className="tabular-nums">
+                第 {curPage + 1} / {pageCount} 页
+              </span>
+              <button type="button" className="act" disabled={curPage >= pageCount - 1} onClick={() => setPage(curPage + 1)}>
+                下一页
+              </button>
+              <span className="ml-auto flex items-center gap-2">
+                跳至
+                <input
+                  type="number"
+                  min={1}
+                  max={pageCount}
+                  className="w-16"
+                  value={jumpText}
+                  placeholder={String(pageCount)}
+                  aria-label="页码跳转"
+                  onChange={(e) => setJumpText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') jumpTo();
+                  }}
+                />
+                页
+                <button type="button" className="act" onClick={jumpTo}>
+                  跳转
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

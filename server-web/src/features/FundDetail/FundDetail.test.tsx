@@ -87,4 +87,28 @@ describe('FundDetail', () => {
     fireEvent.click(screen.getByRole('button', { name: /返回关注列表/ }));
     expect(onBack).toHaveBeenCalled();
   });
+
+  it('分页：每页 50 条，翻页切换；分页栏固定底部且支持页码跳转', async () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      id: i + 1,
+      date: `2026-09-${String((i % 28) + 1).padStart(2, '0')}`,
+      unitNav: 1 + i / 1000,
+      createdAt: '',
+    }));
+    stubApi({ navs: many });
+    render(<FundDetail fund={FUND} onBack={() => {}} />);
+    await screen.findByText('已录 120 条');
+    expect(screen.getByText('第 1 / 3 页')).toBeTruthy();
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 50); // 表头 + 50 行
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await screen.findByText('第 2 / 3 页');
+    // 页码跳转：输入 3 → 第 3 页；越界钳制到末页
+    fireEvent.change(screen.getByLabelText('页码跳转'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: '跳转' }));
+    await screen.findByText('第 3 / 3 页');
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 20); // 末页 20 行
+    fireEvent.change(screen.getByLabelText('页码跳转'), { target: { value: '99' } });
+    fireEvent.keyDown(screen.getByLabelText('页码跳转'), { key: 'Enter' });
+    await screen.findByText('第 3 / 3 页');
+  });
 });
