@@ -141,3 +141,12 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Extension build output（dist/，esbuild 产物，不入库——由上方通用 dist 规则覆盖）
+
+# 本地服务运行时数据（SQLite 库等）
+server/*.db*
+server/server.log
+
+# Native messaging install artifact
+server/com.fund.assistant.json

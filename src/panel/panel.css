@@ -1,0 +1,51 @@
+/* 侧边栏面板样式：暗色极简。 */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 13px/1.6 system-ui, 'Microsoft YaHei', sans-serif;
+  background: #17181c;
+  color: #e6e7ea;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2a2c33;
+}
+header h1 { margin: 0; font-size: 15px; }
+#version { color: #8b8e98; font-size: 12px; }
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px;
+  padding: 10px 12px;
+  border: 1px solid #2a2c33;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.status:hover { border-color: #3c3f49; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #8b8e98; flex: none; }
+.dot.online { background: #34d399; }
+.dot.err { background: #f87171; }
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translate(-50%, 8px);
+  background: #26282f;
+  border: 1px solid #3a3d47;
+  color: #e6e7ea;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+  max-width: calc(100vw - 24px);
+  text-align: center;
+}
+#toast.on { opacity: 1; transform: translate(-50%, 0); }

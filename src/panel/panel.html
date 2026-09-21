@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>基金助手</title>
+  <link rel="stylesheet" href="./panel.css">
+</head>
+<body>
+  <header>
+    <h1>基金助手</h1>
+    <span id="version"></span>
+  </header>
+  <section class="status" id="status-card" role="button" tabindex="0" aria-label="服务状态（在线点击打开管理页，离线点击启动服务）">
+    <span class="dot" id="dot"></span>
+    <span id="status-text">检测中…</span>
+  </section>
+  <div id="toast"></div>
+  <script type="module" src="./panel.js"></script>
+</body>
+</html>

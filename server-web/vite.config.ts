@@ -1,0 +1,36 @@
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { fileURLToPath } from 'node:url';
+
+// outDir 直出 ../server/public：文件名不带哈希（产物随仓库提交，diff 稳定），
+// 服务侧零依赖开箱即用；emptyOutDir 清掉旧产物。
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  build: {
+    outDir: '../server/public',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/app.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
+      },
+    },
+  },
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:17521',
+    },
+  },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    setupFiles: ['src/test/setup.ts'],
+  },
+});

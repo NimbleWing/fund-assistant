@@ -1,0 +1,22 @@
+{
+  "name": "fund-assistant",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "基金助手 Chrome 扩展（TypeScript + esbuild 构建，产物 dist/）— 开发工具链（构建/测试/类型检查），扩展本体无运行时依赖",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "watch": "node tools/build.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.9",
+    "@types/node": "^26.5.1",
+    "esbuild": "^0.27.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
