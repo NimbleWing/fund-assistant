@@ -54,10 +54,10 @@ function stubApi(handler?: (url: string, init?: RequestInit) => Response | null)
 }
 
 describe('Rounds', () => {
-  it('加载基金列表并拉取轮次；无轮次时空态提示', async () => {
+  it('加载基金列表并拉取轮次；无进行中轮时空态提示', async () => {
     stubApi();
     render(<Rounds />);
-    await screen.findByText(/该基金还没有轮次/);
+    await screen.findByText(/没有进行中的轮次/);
     const urls = vi.mocked(fetch).mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => u.includes('/api/rounds?fund=018994'))).toBe(true);
   });
@@ -100,12 +100,8 @@ describe('Rounds', () => {
     expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({ direction: 'buy', amount: 1000, nav: 2, shares: 500 });
   });
 
-  it('已清仓轮：快照表格渲染，展开查看交易明细', async () => {
-    const closedRound = makeRound({
-      status: 'closed',
-      closedAt: '2026-09-21T12:00:00Z',
-      metrics: { ...makeRound().metrics, holdingPrincipal: 0, holdingShares: 0, marketValue: null, floatingPnl: null, dilutedHoldingPnl: null, totalPnl: 500, realizedPnl: 500 },
-    });
+  it('已清仓轮不在当前轮次页展示', async () => {
+    const closedRound = makeRound({ status: 'closed', closedAt: '2026-09-21T12:00:00Z' });
     stubApi((url) => {
       if (url.includes('/api/rounds?fund=')) {
         return new Response(JSON.stringify({ ok: true, rounds: [closedRound] }), { status: 200 });
@@ -113,12 +109,8 @@ describe('Rounds', () => {
       return null;
     });
     render(<Rounds />);
-    await screen.findByText('已清仓');
-    expect(screen.getAllByText('+500.00').length).toBeGreaterThanOrEqual(1); // 已实现盈亏与轮总盈亏
-    expect(screen.queryByRole('button', { name: '清仓闭轮' })).toBeNull(); // 无进行中轮
-    fireEvent.click(screen.getByRole('button', { name: '展开' }));
-    await screen.findByRole('button', { name: '收起' });
-    expect(screen.getAllByText('2026-09-01').length).toBeGreaterThanOrEqual(1);
+    await screen.findByText(/没有进行中的轮次/);
+    expect(screen.queryByText('已清仓')).toBeNull();
   });
 
   it('选择买入时间自动匹配确认净值，输入本金自动算份额；无净值记录日期给出提示', async () => {

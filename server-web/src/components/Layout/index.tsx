@@ -117,7 +117,7 @@ export function Layout<K extends string>({ title, headerExtra, tabs, activeTab, 
             </div>
           </nav>
         )}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col px-5 py-6 lg:px-8">{children}</main>
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
       </div>
     </div>
   );

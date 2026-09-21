@@ -1,6 +1,6 @@
-// 轮次页：基金选择（关注列表）+ 进行中轮卡片（指标动态计算）+ 买卖录入 + 历史轮次（清仓快照）。
-// 闭轮为手动按钮，持有份额未归 0 时禁用（防止带持仓写快照）；进行中轮可删除误录交易。
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+// 当前轮次页：进行中轮卡片（指标动态计算）+ 买卖录入 + 本轮交易表（可删误录）。
+// 闭轮为手动按钮，持有份额未归 0 时禁用；已清仓轮次在「已清仓轮次」页查看。
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addRoundTxn,
   closeRound,
@@ -8,12 +8,11 @@ import {
   deleteRoundTxn,
   fetchFundNavs,
   fetchRounds,
-  fetchWatchlist,
   type RoundData,
   type RoundMetrics,
-  type WatchRow,
 } from '@/lib/api';
 import { fmt, fmt4, pnlValue, round2 } from '@/lib/format';
+import { useFundSelection } from './useFundSelection';
 
 function today(): string {
   const d = new Date();
@@ -210,20 +209,10 @@ function TxnForm({ navMap, onSubmit }: TxnFormProps) {
 }
 
 export function Rounds() {
-  const [funds, setFunds] = useState<WatchRow[]>([]);
-  const [fundCode, setFundCode] = useState('');
+  const { funds, fundCode, setFundCode } = useFundSelection();
   const [rounds, setRounds] = useState<RoundData[] | null>(null);
   const [navMap, setNavMap] = useState<Map<string, number>>(new Map());
   const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState<number | null>(null);
-
-  useEffect(() => {
-    void fetchWatchlist().then((d) => {
-      const rows = d?.ok && d.rows ? d.rows : [];
-      setFunds(rows);
-      if (rows.length > 0) setFundCode((prev) => prev || (rows[0]?.code ?? ''));
-    });
-  }, []);
 
   const refresh = useCallback(async () => {
     if (!fundCode) {
@@ -284,10 +273,9 @@ export function Rounds() {
   };
 
   const active = rounds?.find((r) => r.status === 'active') ?? null;
-  const closed = (rounds ?? []).filter((r) => r.status === 'closed');
 
   return (
-    <div className="flex min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
         <label htmlFor="rounds-fund" className="text-[13px] text-dim">
           基金
@@ -307,7 +295,7 @@ export function Rounds() {
       </div>
 
       {active && (
-        <div className="card flex flex-col gap-4 p-4">
+        <div className="card flex min-h-0 flex-1 flex-col gap-4 p-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <p className="font-medium">第 {active.seq} 轮</p>
             <span className="badge badge-ok">进行中</span>
@@ -327,7 +315,9 @@ export function Rounds() {
           <MetricsGrid m={active.metrics} />
           <TxnForm key={active.id} navMap={navMap} onSubmit={(txn) => submitTxn(active.id, txn)} />
           {active.txns.length > 0 && (
-            <table className="tabular-nums">
+            // 交易表填满剩余视口高度，超出部分表内滚动
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="tabular-nums">
               <thead>
                 <tr>
                   <th>方向</th>
@@ -356,80 +346,14 @@ export function Rounds() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           )}
         </div>
       )}
 
-      {rounds != null && rounds.length === 0 && fundCode && (
-        <p className="text-sm text-dim">该基金还没有轮次——点击「开始新一轮」。</p>
-      )}
-
-      {closed.length > 0 && (
-        <div className="card overflow-x-auto">
-          <table className="tabular-nums">
-            <thead>
-              <tr>
-                <th>轮次</th>
-                <th>状态</th>
-                <th>买入次数</th>
-                <th>卖出次数</th>
-                <th>总投入</th>
-                <th>累计回款</th>
-                <th>已实现盈亏</th>
-                <th>已卖本金</th>
-                <th>轮总盈亏</th>
-                <th>闭轮时间</th>
-                <th>明细</th>
-              </tr>
-            </thead>
-            <tbody>
-              {closed.map((r) => (
-                <Fragment key={r.id}>
-                  <tr>
-                    <td>第 {r.seq} 轮</td>
-                    <td>
-                      <span className="badge badge-dim">已清仓</span>
-                    </td>
-                    <td>{r.metrics.buyCount}</td>
-                    <td>{r.metrics.sellCount}</td>
-                    <td>{fmt(r.metrics.invested)}</td>
-                    <td>{fmt(r.metrics.proceeds)}</td>
-                    <td className={pnlValue(r.metrics.realizedPnl).cls}>{pnlValue(r.metrics.realizedPnl).text}</td>
-                    <td>{fmt(r.metrics.soldPrincipal)}</td>
-                    <td className={`font-semibold ${pnlValue(r.metrics.totalPnl ?? 0).cls}`}>{pnlValue(r.metrics.totalPnl ?? 0).text}</td>
-                    <td className="text-dim">{r.closedAt ? new Date(r.closedAt).toLocaleString('zh-CN', { hour12: false }) : '—'}</td>
-                    <td>
-                      <button type="button" className="act" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-                        {expanded === r.id ? '收起' : '展开'}
-                      </button>
-                    </td>
-                  </tr>
-                  {expanded === r.id && (
-                    <tr>
-                      <td colSpan={11}>
-                        <table className="tabular-nums">
-                          <tbody>
-                            {r.txns.map((t) => (
-                              <tr key={t.id}>
-                                <td className={t.direction === 'buy' ? 'text-up' : 'text-down'}>{t.direction === 'buy' ? '买入' : '卖出'}</td>
-                                <td>{t.date}</td>
-                                <td>{fmt(t.amount)}</td>
-                                <td>{fmt4(t.nav)}</td>
-                                <td>{fmt(t.shares)}</td>
-                                <td>{t.direction === 'sell' && t.fee > 0 ? `手续费 ${fmt(t.fee)}` : ''}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {rounds != null && active == null && fundCode && (
+        <p className="text-sm text-dim">该基金没有进行中的轮次——点击「开始新一轮」；已清仓轮次见「已清仓轮次」页。</p>
       )}
     </div>
   );
