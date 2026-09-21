@@ -1,5 +1,6 @@
 // 关注列表页：已关注基金表格（代码/名称/类型/关注时间）+ 取消关注。
-// 取消为服务端软删除（active=0），成功后本地即时移除行；空态引导去基金搜索页。
+// 取消为服务端软删除（active=0），成功后本地即时移除行；空态引导去搜索页。
+// 点击基金名称进入净值详情页（历史 + 补录）。
 import { useCallback, useEffect, useState } from 'react';
 import { fetchWatchlist, unfollowFund, type WatchRow } from '@/lib/api';
 
@@ -8,7 +9,11 @@ function fmtTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false });
 }
 
-export function Watchlist() {
+interface WatchlistProps {
+  onOpenFund: (fund: WatchRow) => void;
+}
+
+export function Watchlist({ onOpenFund }: WatchlistProps) {
   const [rows, setRows] = useState<WatchRow[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [pendingCode, setPendingCode] = useState<string | null>(null);
@@ -61,7 +66,16 @@ export function Watchlist() {
               {rows.map((r) => (
                 <tr key={r.code}>
                   <td>{r.code}</td>
-                  <td>{r.name}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="text-brand hover:underline"
+                      title="查看净值历史与补录"
+                      onClick={() => onOpenFund(r)}
+                    >
+                      {r.name}
+                    </button>
+                  </td>
                   <td className="text-dim">{r.type ?? '—'}</td>
                   <td className="text-dim">{fmtTime(r.created_at)}</td>
                   <td>

@@ -169,3 +169,34 @@ export function followFund(fund: { code: string; name: string; type: string | nu
 export function unfollowFund(code: string): Promise<WatchlistData | null> {
   return callApi<WatchlistData>(`/api/watchlist/${encodeURIComponent(code)}`, { method: 'DELETE' });
 }
+
+// ---- 基金净值历史（fund.db fund_nav 表；启动同步 + 手动补录） ----
+
+export interface NavRow {
+  id: number;
+  /** 净值日期 YYYY-MM-DD */
+  date: string;
+  /** 单位净值 */
+  unitNav: number;
+  createdAt: string;
+}
+
+export interface FundNavsData {
+  ok: boolean;
+  fund?: { code: string; name: string; type: string | null };
+  rows?: NavRow[];
+  error?: string;
+}
+
+export function fetchFundNavs(code: string): Promise<FundNavsData | null> {
+  return callApi<FundNavsData>(`/api/funds/${encodeURIComponent(code)}/navs`);
+}
+
+/** 手动补录；已存在日期返回 ok:true, inserted:false（不覆盖）。 */
+export function addFundNav(code: string, date: string, unitNav: number): Promise<{ ok: boolean; inserted?: boolean; error?: string } | null> {
+  return callApi(`/api/funds/${encodeURIComponent(code)}/nav`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, unitNav }),
+  });
+}

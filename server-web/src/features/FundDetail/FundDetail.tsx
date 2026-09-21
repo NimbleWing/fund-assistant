@@ -1,0 +1,130 @@
+// 基金净值详情页（关注列表点击进入，非侧边栏页签）：净值历史表 + 手动补录表单。
+// 补录与启动同步同一去重规则：已存在日期不覆盖，服务端返回 inserted:false，页面明确提示。
+import { useCallback, useEffect, useState } from 'react';
+import { addFundNav, fetchFundNavs, type NavRow } from '@/lib/api';
+
+interface FundDetailProps {
+  fund: { code: string; name: string; type: string | null };
+  onBack: () => void;
+}
+
+type Feedback = { kind: 'ok' | 'warn' | 'err'; text: string } | null;
+
+export function FundDetail({ fund, onBack }: FundDetailProps) {
+  const [rows, setRows] = useState<NavRow[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [date, setDate] = useState('');
+  const [navText, setNavText] = useState('');
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const d = await fetchFundNavs(fund.code);
+    if (d?.ok && d.rows) {
+      setRows(d.rows);
+      setFailed(false);
+    } else {
+      setFailed(true);
+    }
+  }, [fund.code]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const submit = async () => {
+    const unitNav = Number(navText);
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setFeedback({ kind: 'err', text: '请选择净值日期（YYYY-MM-DD）' });
+      return;
+    }
+    if (!Number.isFinite(unitNav) || unitNav <= 0) {
+      setFeedback({ kind: 'err', text: '单位净值需为正数' });
+      return;
+    }
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      const d = await addFundNav(fund.code, date, unitNav);
+      if (d == null || !d.ok) {
+        setFeedback({ kind: 'err', text: d?.error ?? '补录失败，请确认服务在线' });
+      } else if (d.inserted) {
+        setFeedback({ kind: 'ok', text: `已补录 ${date} 单位净值 ${unitNav}` });
+        setNavText('');
+        await refresh();
+      } else {
+        setFeedback({ kind: 'warn', text: `${date} 已存在净值记录，未覆盖` });
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-0 flex-col gap-4">
+      <div className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
+        <button type="button" className="act" onClick={onBack}>
+          ← 返回关注列表
+        </button>
+        <p className="font-medium">
+          {fund.name} <span className="text-dim">{fund.code}</span>
+          {fund.type && <span className="ml-2 text-[13px] text-dim">{fund.type}</span>}
+        </p>
+        <span className="ml-auto text-xs text-dim">{rows != null ? `已录 ${rows.length} 条` : ''}</span>
+      </div>
+
+      <div className="card flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
+        <label htmlFor="nav-date" className="text-[13px] text-dim">
+          净值日期
+        </label>
+        <input id="nav-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <label htmlFor="nav-value" className="text-[13px] text-dim">
+          单位净值
+        </label>
+        <input
+          id="nav-value"
+          type="number"
+          step="0.0001"
+          min="0"
+          className="w-28"
+          value={navText}
+          onChange={(e) => setNavText(e.target.value)}
+        />
+        <button type="button" className="act act-primary" disabled={submitting} onClick={() => void submit()}>
+          补录
+        </button>
+        {feedback && (
+          <span className={`text-xs ${feedback.kind === 'err' ? 'text-err' : feedback.kind === 'warn' ? 'text-warn' : 'text-ok'}`}>
+            {feedback.text}
+          </span>
+        )}
+      </div>
+
+      {failed && <p className="text-sm text-err">净值历史加载失败，请确认本地服务在线。</p>}
+      {!failed && rows == null && <p className="text-sm text-dim">加载中…</p>}
+      {!failed && rows != null && rows.length === 0 && (
+        <p className="text-sm text-dim">暂无净值记录——服务启动时会自动同步最近约一个月净值，更早历史可在上方补录。</p>
+      )}
+      {rows != null && rows.length > 0 && (
+        <div className="card overflow-x-auto">
+          <table className="tabular-nums">
+            <thead>
+              <tr>
+                <th>净值日期</th>
+                <th>单位净值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.date}</td>
+                  <td>{r.unitNav.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

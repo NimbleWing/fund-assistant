@@ -12,7 +12,10 @@ export interface FundHit {
   type: string | null;
 }
 
-export type FetchLike = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
+export type FetchLike = (
+  url: string,
+  init?: { signal?: AbortSignal; headers?: Record<string, string> },
+) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
 
 /** 归一化 suggest 响应：非法结构返回空列表（由调用方区分远端失败）。 */
 export function normalizeSuggest(body: unknown): FundHit[] {

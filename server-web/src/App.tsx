@@ -7,6 +7,8 @@ import { Records } from '@/features/Records/Records';
 import { Timeline } from '@/features/Timeline/Timeline';
 import { Funds } from '@/features/Funds/Funds';
 import { Watchlist } from '@/features/Watchlist/Watchlist';
+import { FundDetail } from '@/features/FundDetail/FundDetail';
+import type { WatchRow } from '@/lib/api';
 
 // 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析 / 过程回放 / 基金搜索 / 关注列表），
 // 服务心跳轮询（10s）结果显示于顶栏 headerExtra。
@@ -82,6 +84,7 @@ const TABS = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('status');
+  const [selectedFund, setSelectedFund] = useState<WatchRow | null>(null);
   const [online, setOnline] = useState<boolean | null>(null);
   const [service, setService] = useState('');
 
@@ -108,13 +111,22 @@ export default function App() {
       headerExtra={online == null ? '检测中…' : online ? `服务在线${service ? ` · ${service}` : ''}` : '服务离线'}
       tabs={TABS}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={(t) => {
+        setTab(t);
+        setSelectedFund(null); // 切页签时退出基金详情页
+      }}
     >
-      {tab === 'status' && <Status online={online} service={service} onRefresh={() => void refresh()} />}
-      {tab === 'records' && <Records />}
-      {tab === 'timeline' && <Timeline />}
-      {tab === 'funds' && <Funds />}
-      {tab === 'watchlist' && <Watchlist />}
+      {selectedFund ? (
+        <FundDetail fund={selectedFund} onBack={() => setSelectedFund(null)} />
+      ) : (
+        <>
+          {tab === 'status' && <Status online={online} service={service} onRefresh={() => void refresh()} />}
+          {tab === 'records' && <Records />}
+          {tab === 'timeline' && <Timeline />}
+          {tab === 'funds' && <Funds />}
+          {tab === 'watchlist' && <Watchlist onOpenFund={setSelectedFund} />}
+        </>
+      )}
     </Layout>
   );
 }

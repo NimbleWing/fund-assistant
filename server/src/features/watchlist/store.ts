@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS watchlist(
 
 export interface WatchStore {
   list(): WatchRow[];
+  /** 按 code 查（含软删除行）；不存在返回 null。 */
+  findByCode(code: string): WatchRow | null;
   /** 关注（重复关注幂等：复活软删除并刷新 name/type/updated_at）。返回该 code 的当前行。 */
   add(code: string, name: string, type: string | null): WatchRow;
   /** 软删除；返回是否有活跃行被移除。 */
@@ -55,6 +57,7 @@ export function openWatchStore(dbPath: string = DB_FILE): WatchStore {
 
   return {
     list: () => stmtList.all() as unknown as WatchRow[],
+    findByCode: (code) => (stmtGet.get(code) as unknown as WatchRow) ?? null,
     add(code, name, type) {
       const ts = now();
       stmtUpsert.run(code, name, type, ts, ts);

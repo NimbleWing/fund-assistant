@@ -29,7 +29,7 @@ function stubList(rows: typeof ROWS | null) {
 describe('Watchlist', () => {
   it('渲染关注列表（类型缺失显示 —）', async () => {
     stubList(ROWS);
-    render(<Watchlist />);
+    render(<Watchlist onOpenFund={() => {}} />);
     await screen.findByText('001003');
     expect(screen.getByText('华夏成长混合')).toBeTruthy();
     expect(screen.getByText('—')).toBeTruthy();
@@ -38,19 +38,28 @@ describe('Watchlist', () => {
 
   it('空列表引导去搜索页', async () => {
     stubList([]);
-    render(<Watchlist />);
+    render(<Watchlist onOpenFund={() => {}} />);
     await screen.findByText(/暂无关注基金/);
+  });
+
+  it('点击基金名称触发 onOpenFund 进入详情页', async () => {
+    stubList(ROWS);
+    const onOpenFund = vi.fn();
+    render(<Watchlist onOpenFund={onOpenFund} />);
+    await screen.findByText('001003');
+    fireEvent.click(screen.getByRole('button', { name: '华夏债券C' }));
+    expect(onOpenFund).toHaveBeenCalledWith(expect.objectContaining({ code: '001003', name: '华夏债券C' }));
   });
 
   it('加载失败提示', async () => {
     stubList(null);
-    render(<Watchlist />);
+    render(<Watchlist onOpenFund={() => {}} />);
     await screen.findByText(/关注列表加载失败/);
   });
 
   it('取消关注：DELETE 后行即时移除', async () => {
     stubList(ROWS);
-    render(<Watchlist />);
+    render(<Watchlist onOpenFund={() => {}} />);
     await screen.findByText('001003');
     fireEvent.click(screen.getAllByRole('button', { name: '取消关注' })[0] as HTMLElement);
     await vi.waitFor(() => expect(screen.queryByText('001003')).toBeNull());

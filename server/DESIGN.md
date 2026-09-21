@@ -97,3 +97,14 @@
 - 表 `watchlist`：`id INTEGER PRIMARY KEY AUTOINCREMENT`、`code TEXT UNIQUE NOT NULL`、`name TEXT NOT NULL`、`type TEXT`、`created_at TEXT`、`updated_at TEXT`、`active INTEGER NOT NULL DEFAULT 1`。
 - **取消关注为软删除**（`active=0` + 更新 `updated_at`）：后续将基于关注列表派生每日净值写入任务，取消关注伴随关联清理，硬删除留到该任务落地时一并处理。重复关注幂等：`ON CONFLICT(code)` 复活并刷新 name/type/updated_at。
 - 路由：`GET /api/watchlist`（仅 active=1）/ `POST /api/watchlist {code,name,type}`（关注或复活）/ `DELETE /api/watchlist/:code`（软删除）。`lib/http.ts` 的 `Route.method` 含 `'DELETE'`；`app.ts` 的 Origin 写守卫覆盖 POST/PUT/DELETE。
+
+## 10. 基金净值历史（nav/）
+
+关注基金的单位净值历史落库。术语统一：第三方字段在抓取层归一化为领域术语（`FSRQ`→`date`、`DWJZ`→`unitNav`），库表/接口/前端一律用领域术语（`domain_models/CONTEXT.md`）。
+
+- 数据源：天天基金历史净值 `api.fund.eastmoney.com/f10/lsjz?fundCode={code}&pageIndex=1&pageSize=20`（需 `Referer: fundf10.eastmoney.com` 头；**每页上限 20 条**，故启动同步只覆盖最近约一个月，更早历史靠手动补录）。
+- 表 `fund_nav`（fund.db 内）：`id` / `watchlist_id`（逻辑关联 watchlist.id，不启用 FK 约束——SQLite prepare 会校验被引用表存在，跨连接顺序敏感）/ `unit_nav REAL` / `date TEXT`（YYYY-MM-DD）/ `created_at`；`UNIQUE(watchlist_id, date)` 去重。
+- **启动同步**（`server.ts` listen 后异步执行，不阻塞启动）：按「期望净值日期」驱动——**20:00 前**期望上一交易日（周末回退到最近周五，节假日不识别），已入库则跳过，缺失则抓一次（一页 20 条足够覆盖）；**20:00 后**期望当日净值，缺失则立即抓一次，仍未公布则**每小时轮询**，直到当日净值入库或跨日（次日 0 点自动停止，下次启动重新判断）。基金间间隔 500ms 防限流，单只失败仅记日志。
+- **手动补录**：`POST /api/funds/:code/nav {date, unitNav}`——code 须在关注列表（含软删除）；该日期已存在时不覆盖，返回 `{ok:true, inserted:false}` 由前端提示；校验 date 格式与 unitNav > 0。
+- 查询：`GET /api/funds/:code/navs` → 该基金全部净值（date 倒序），供管理页基金详情页展示。
+- 结构：`store.ts`（fund_nav 读写，:memory: 可注入）/ `fetch.ts`（lsjz 拉取 + 归一化，fetch 可注入）/ `sync.ts`（启动同步编排）/ `routes.ts`。

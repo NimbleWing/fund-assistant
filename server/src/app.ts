@@ -7,6 +7,7 @@ import { systemRoutes } from './features/system/index.ts';
 import { recordsRoutes } from './features/records/index.ts';
 import { fundsRoutes } from './features/funds/index.ts';
 import { watchlistRoutes } from './features/watchlist/index.ts';
+import { navRoutes } from './features/nav/index.ts';
 
 export const HOST = '127.0.0.1';
 export const PORT = 17521;
@@ -19,7 +20,7 @@ function isAllowedOrigin(origin: string): boolean {
   return ALLOWED_ORIGINS.includes(origin) || origin.startsWith('chrome-extension://');
 }
 
-const ROUTES: Route[] = [...systemRoutes, ...recordsRoutes, ...fundsRoutes, ...watchlistRoutes()];
+const ROUTES: Route[] = [...systemRoutes, ...recordsRoutes, ...fundsRoutes, ...watchlistRoutes(), ...navRoutes()];
 
 /** 路径匹配：段精确相等；':x' 段为参数占位（如 /api/funds/:code）。未匹配返回 null。 */
 function matchPath(pattern: string, pathname: string): Record<string, string> | null {
