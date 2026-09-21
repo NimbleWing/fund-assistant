@@ -31,6 +31,26 @@ export interface PairRow {
   pnl: number | null;
 }
 
+/** 回放单步：一笔交易明细 + 该步之后的摊薄口径状态快照（过程回放页签数据源）。 */
+export interface TimelineStep {
+  seq: number;
+  isSell: boolean;
+  time: string;
+  nav: number;
+  /** 买入本金 / 卖出回款 */
+  amount: number;
+  shares: number;
+  cost: number;
+  holdingShares: number;
+  /** 均价；无持仓为 null */
+  avgPrice: number | null;
+  invested: number;
+  proceeds: number;
+  /** 该笔摊薄口径已实现盈亏（买入为 0） */
+  stepPnl: number;
+  realizedPnl: number;
+}
+
 export interface RecordsData {
   ok: boolean;
   rows: PairRow[];
@@ -49,6 +69,8 @@ export interface RecordsData {
   accountBreakEvenNav: number | null;
   /** 最后一条卖出的确认净值（默认「最新净值」）；无卖出为 null */
   latestSellNav: number | null;
+  /** 逐笔回放序列（按文件顺序） */
+  timeline: TimelineStep[];
   error?: string;
 }
 

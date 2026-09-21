@@ -50,6 +50,8 @@ export interface RecordsSummary {
   accountBreakEvenNav: number | null;
   /** 最后一条卖出的确认净值（供前端默认「最新净值」）；无卖出为 null */
   latestSellNav: number | null;
+  /** 逐笔回放序列（按文件顺序，含每步后的摊薄状态快照） */
+  timeline: TimelineStep[];
 }
 
 export interface Anomaly {
@@ -68,6 +70,33 @@ export interface DilutedSummary {
   /** 摊薄成本价（成本÷当前份额，4 位）；无持仓为 null */
   costPrice: number | null;
   /** 摊薄口径已实现盈亏（回款 − 累计扣减成本） */
+  realizedPnl: number;
+}
+
+/** 回放单步：一笔交易明细 + 该步之后的摊薄口径状态快照（过程回放页签数据源）。 */
+export interface TimelineStep {
+  /** 第几笔（1 起） */
+  seq: number;
+  isSell: boolean;
+  time: string;
+  nav: number;
+  /** 买入本金 / 卖出回款（份额×卖出净值） */
+  amount: number;
+  /** 本笔交易份额 */
+  shares: number;
+  /** 该步之后的摊薄成本 */
+  cost: number;
+  /** 该步之后的持仓份额 */
+  holdingShares: number;
+  /** 均价（成本÷份额，4 位）；无持仓为 null */
+  avgPrice: number | null;
+  /** 累计买入本金 */
+  invested: number;
+  /** 累计回款 */
+  proceeds: number;
+  /** 该笔摊薄口径已实现盈亏（买入为 0） */
+  stepPnl: number;
+  /** 累计摊薄已实现盈亏 */
   realizedPnl: number;
 }
 
@@ -158,21 +187,50 @@ export function parseRecords(text: string): RecordsSummary {
     holdingShares += buys[i].shares;
   }
 
-  // 摊薄成本模拟（按文件顺序）：买入累加成本；卖出按当时平均成本价扣减。
+  // 摊薄成本模拟（按文件顺序）：买入累加成本；卖出按当时平均成本价扣减。同步产出回放序列。
   let dilutedCost = 0;
   let liveShares = 0;
   let deductedTotal = 0;
-  for (const ev of events) {
+  const timeline: TimelineStep[] = [];
+  let investedRaw = 0;
+  let proceedsRaw = 0;
+  let realizedRaw = 0;
+  for (const [seq0, ev] of events.entries()) {
+    let amount = 0;
+    let stepPnl = 0;
     if (!ev.isSell) {
       dilutedCost += ev.rec.principal;
       liveShares += ev.rec.shares;
-    } else if (liveShares > 0) {
-      const sold = Math.min(ev.rec.shares, liveShares);
-      const deduct = sold * (dilutedCost / liveShares);
-      dilutedCost -= deduct;
-      deductedTotal += deduct;
-      liveShares -= sold;
+      investedRaw += ev.rec.principal;
+      amount = ev.rec.principal;
+    } else {
+      amount = ev.rec.shares * ev.rec.nav;
+      proceedsRaw += amount;
+      if (liveShares > 0) {
+        const sold = Math.min(ev.rec.shares, liveShares);
+        const deduct = sold * (dilutedCost / liveShares);
+        dilutedCost -= deduct;
+        deductedTotal += deduct;
+        liveShares -= sold;
+        stepPnl = amount - deduct;
+        realizedRaw += stepPnl;
+      }
     }
+    timeline.push({
+      seq: seq0 + 1,
+      isSell: ev.isSell,
+      time: ev.rec.time,
+      nav: ev.rec.nav,
+      amount: round2(amount),
+      shares: ev.rec.shares,
+      cost: round2(dilutedCost),
+      holdingShares: round2(liveShares),
+      avgPrice: liveShares > 0 ? round4(dilutedCost / liveShares) : null,
+      invested: round2(investedRaw),
+      proceeds: round2(proceedsRaw),
+      stepPnl: round2(stepPnl),
+      realizedPnl: round2(realizedRaw),
+    });
   }
   const sellProceeds = sells.reduce((s, x) => s + x.shares * x.nav, 0);
   const totalBuyPrincipal = buys.reduce((s, x) => s + x.principal, 0);
@@ -194,5 +252,6 @@ export function parseRecords(text: string): RecordsSummary {
     sellProceeds: round2(sellProceeds),
     accountBreakEvenNav: liveShares > 0 ? round4((totalBuyPrincipal - sellProceeds) / liveShares) : null,
     latestSellNav: sells.length > 0 ? (sells[sells.length - 1].nav as number) : null,
+    timeline,
   };
 }

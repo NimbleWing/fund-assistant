@@ -87,4 +87,22 @@ describe('parseRecords', () => {
     expect(r.diluted.costPrice).toBeNull();
     expect(r.accountBreakEvenNav).toBeNull();
   });
+
+  it('回放序列：每步携带交易明细与之后的摊薄状态快照', () => {
+    const r = parseRecords('1-1 1000 2 500\n1-2 2000 4 250\n- 1-3 1500 3 500\n');
+    expect(r.timeline).toHaveLength(3);
+    expect(r.timeline[0]).toMatchObject({ seq: 1, isSell: false, time: '1-1', nav: 2, amount: 1000, shares: 500, cost: 1000, holdingShares: 500, avgPrice: 2, invested: 1000, proceeds: 0, stepPnl: 0, realizedPnl: 0 });
+    expect(r.timeline[1]).toMatchObject({ seq: 2, cost: 3000, holdingShares: 750, avgPrice: 4, invested: 3000 });
+    // 卖出：回款 1500，扣减 500×4=2000，本笔摊薄盈亏 −500
+    expect(r.timeline[2]).toMatchObject({ seq: 3, isSell: true, amount: 1500, cost: 1000, holdingShares: 250, avgPrice: 4, invested: 3000, proceeds: 1500, stepPnl: -500, realizedPnl: -500 });
+  });
+
+  it('回放序列：末步状态与汇总一致', () => {
+    const r = parseRecords('1-1 1000 2 500\n1-2 2000 4 250\n- 1-3 1500 3 500\n');
+    const last = r.timeline[r.timeline.length - 1];
+    expect(last.cost).toBe(r.diluted.cost);
+    expect(last.avgPrice).toBe(r.diluted.costPrice);
+    expect(last.realizedPnl).toBe(r.diluted.realizedPnl);
+    expect(last.holdingShares).toBe(r.holdingShares);
+  });
 });

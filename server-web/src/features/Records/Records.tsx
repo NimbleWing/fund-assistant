@@ -1,30 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchRecords, type RecordsData, type PairRow } from '@/lib/api';
+import { fmt, round2, round4, pnlValue } from '@/lib/format';
 
 // 临时分析页：买卖记录配对表（数据由 server 解析 buyAndSellRecord.txt）。
 // 双口径：逐笔配对（已实现/浮动分开）+ 摊薄成本（对齐基金 App「持仓收益」，已实现滚入成本）。
 // 颜色遵循 A 股习惯：红盈绿亏（up/down 主题令牌）；持有行卖出三列显示 —。
 
 const NAV_KEY = 'records-latest-nav';
-
-function fmt(n: number): string {
-  return n.toFixed(2);
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-function round4(n: number): number {
-  return Math.round(n * 10000) / 10000;
-}
-
-/** 带符号金额；正红负绿零灰 */
-function pnlValue(v: number): { text: string; cls: string } {
-  if (v > 0) return { text: `+${fmt(v)}`, cls: 'text-up' };
-  if (v < 0) return { text: fmt(v), cls: 'text-down' };
-  return { text: '0.00', cls: 'text-dim' };
-}
 
 function pnlCell(row: PairRow, nav: number | null): { text: string; cls: string; title?: string } {
   if (row.pnl == null) {

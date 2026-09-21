@@ -4,10 +4,11 @@ import { Layout } from '@/components/Layout';
 import { fetchHealth } from '@/lib/api';
 import { Status } from '@/features/Status/Status';
 import { Records } from '@/features/Records/Records';
+import { Timeline } from '@/features/Timeline/Timeline';
 
-// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析），
+// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析 / 过程回放），
 // 服务心跳轮询（10s）结果显示于顶栏 headerExtra。
-type Tab = 'status' | 'records';
+type Tab = 'status' | 'records' | 'timeline';
 
 const icon = (path: ReactNode) => (
   <svg
@@ -45,6 +46,17 @@ const TABS = [
       </>,
     ),
   },
+  {
+    key: 'timeline',
+    label: '过程回放',
+    icon: icon(
+      <>
+        <path d="M4 19.5V4.5" />
+        <path d="M4 19.5h16" />
+        <path d="M7 15l3.5-4.5 3 3L19 7" />
+      </>,
+    ),
+  },
 ] as const satisfies readonly { key: Tab; label: string; icon: ReactNode }[];
 
 export default function App() {
@@ -79,6 +91,7 @@ export default function App() {
     >
       {tab === 'status' && <Status online={online} service={service} onRefresh={() => void refresh()} />}
       {tab === 'records' && <Records />}
+      {tab === 'timeline' && <Timeline />}
     </Layout>
   );
 }

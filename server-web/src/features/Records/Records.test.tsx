@@ -24,6 +24,7 @@ const MOCK_DATA = {
   sellProceeds: 1500,
   accountBreakEvenNav: 6,
   latestSellNav: 3.68,
+  timeline: [],
 };
 
 describe('Records', () => {

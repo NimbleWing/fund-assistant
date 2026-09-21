@@ -58,6 +58,7 @@ describe('App', () => {
             sellProceeds: 0,
             accountBreakEvenNav: 4.8223,
             latestSellNav: null,
+            timeline: [],
           }),
           { status: 200 },
         );
