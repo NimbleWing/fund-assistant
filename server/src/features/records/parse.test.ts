@@ -51,4 +51,15 @@ describe('parseRecords', () => {
     expect(r.realizedPnl).toBe(300); // (500×3−1000) + (250×7.2−2000) = 500 − 200
     expect(r.soldPrincipal).toBe(3000);
   });
+
+  it('异常检测：买入份额与 本金÷净值 偏差 >1% 时进 anomalies', () => {
+    const r = parseRecords('6-25 1000 4.7108 2122.28\n');
+    expect(r.anomalies).toHaveLength(1);
+    expect(r.anomalies[0]).toMatchObject({ time: '6-25', shares: 2122.28, expectedShares: 212.28 });
+  });
+
+  it('异常检测：两位小数舍入误差不算异常', () => {
+    const r = parseRecords('6-29 4000 4.7041 850.32\n'); // 4000/4.7041 = 850.315… → 850.32
+    expect(r.anomalies).toHaveLength(0);
+  });
 });

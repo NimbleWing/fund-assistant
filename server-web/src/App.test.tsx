@@ -52,6 +52,7 @@ describe('App', () => {
             holdingPrincipal: 1000,
             holdingShares: 207.37,
             unmatchedSells: [],
+            anomalies: [],
           }),
           { status: 200 },
         );

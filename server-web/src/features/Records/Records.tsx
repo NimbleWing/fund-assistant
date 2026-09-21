@@ -55,6 +55,13 @@ export function Records() {
         </div>
       </div>
 
+      {data.anomalies.length > 0 && (
+        <p className="badge badge-warn text-[13px] leading-relaxed">
+          {data.anomalies.length} 条买入份额与 本金÷净值 偏差过大：
+          {data.anomalies.map((a) => `${a.time} 份额 ${a.shares}（按本金/净值应为 ${a.expectedShares}）`).join('、')}
+        </p>
+      )}
+
       {data.unmatchedSells.length > 0 && (
         <p className="badge badge-warn text-[13px] leading-relaxed">
           {data.unmatchedSells.length} 条卖出未找到同份额买入：{data.unmatchedSells.map((s) => `${s.time}（${s.shares} 份）`).join('、')}

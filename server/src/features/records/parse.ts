@@ -38,6 +38,17 @@ export interface RecordsSummary {
   holdingShares: number;
   /** 找不到份额相等买入的卖出（数据异常） */
   unmatchedSells: SellRecord[];
+  /** 买入行份额与 本金÷净值 偏差超 1% 的疑似录入错误（时间/本金/净值/份额/推算份额） */
+  anomalies: Anomaly[];
+}
+
+export interface Anomaly {
+  time: string;
+  principal: number;
+  nav: number;
+  shares: number;
+  /** 按 本金÷净值 推算的份额（保留 2 位） */
+  expectedShares: number;
 }
 
 function round2(n: number): number {
@@ -73,6 +84,18 @@ export function parseRecords(text: string): RecordsSummary {
     sellNav: null,
     pnl: null,
   }));
+
+  // 异常检测：买入份额应 ≈ 本金÷净值（两位小数舍入误差内）；偏差 >1% 视为疑似录入错误。
+  // 卖出不校验（其本金字段为原买入本金，非卖出金额）。
+  const anomalies: Anomaly[] = [];
+  for (const b of buys) {
+    if (!(b.nav > 0)) continue;
+    const expected = b.principal / b.nav;
+    const denom = Math.max(b.shares, expected);
+    if (denom > 0 && Math.abs(b.shares - expected) / denom > 0.01) {
+      anomalies.push({ time: b.time, principal: b.principal, nav: b.nav, shares: b.shares, expectedShares: round2(expected) });
+    }
+  }
   const matched = new Set<number>();
   const unmatchedSells: SellRecord[] = [];
   let realizedPnl = 0;
@@ -115,5 +138,6 @@ export function parseRecords(text: string): RecordsSummary {
     holdingPrincipal: round2(holdingPrincipal),
     holdingShares: round2(holdingShares),
     unmatchedSells,
+    anomalies,
   };
 }

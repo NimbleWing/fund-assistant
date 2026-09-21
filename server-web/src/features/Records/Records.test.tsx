@@ -18,6 +18,7 @@ const MOCK_DATA = {
   holdingPrincipal: 2000,
   holdingShares: 637.82,
   unmatchedSells: [{ time: '9-10', shares: 999 }],
+  anomalies: [],
 };
 
 describe('Records', () => {
@@ -44,5 +45,23 @@ describe('Records', () => {
     );
     render(<Records />);
     await screen.findByText('未找到记录文件');
+  });
+
+  it('异常买入提示：显示推算份额', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ...MOCK_DATA,
+            anomalies: [{ time: '6-25', principal: 1000, nav: 4.7108, shares: 2122.28, expectedShares: 212.28 }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    render(<Records />);
+    await screen.findByText(/1 条买入份额与 本金÷净值 偏差过大/);
+    expect(screen.getByText(/份额 2122.28（按本金\/净值应为 212.28）/)).toBeTruthy();
   });
 });

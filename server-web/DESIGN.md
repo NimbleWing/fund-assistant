@@ -22,7 +22,7 @@ src/
 │   └── Layout/                   # 页面骨架（顶栏 + 侧边栏 + 内容区）
 ├── features/
 │   ├── Status/                   # 服务状态页（心跳徽标 + 手动刷新）
-│   └── Records/                  # 临时分析页：买卖配对表（/api/records，红盈绿亏，持有行降透明度）
+│   └── Records/                  # 临时分析页：买卖配对表（/api/records，红盈绿亏，持有行降透明度；未匹配卖出/份额异常黄色警示）
 ├── lib/api.ts                    # API 客户端（超时归一，fetch 走 /api 同源/代理）
 ├── styles.css                    # @import "tailwindcss" + @theme 令牌 + 组件类
 └── test/setup.ts                 # React act 环境
