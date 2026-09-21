@@ -62,4 +62,29 @@ describe('parseRecords', () => {
     const r = parseRecords('6-29 4000 4.7041 850.32\n'); // 4000/4.7041 = 850.315… → 850.32
     expect(r.anomalies).toHaveLength(0);
   });
+
+  it('摊薄成本：卖出按当时平均成本扣减，已实现盈亏滚入剩余成本', () => {
+    // 成本 3000/750 份（均价 4）；卖 500 份回款 1500，扣减 500×4=2000 → 成本 1000/250 份
+    const r = parseRecords('1-1 1000 2 500\n1-2 2000 4 250\n- 1-3 1500 3 500\n');
+    expect(r.diluted).toEqual({ cost: 1000, costPrice: 4, realizedPnl: -500 });
+    expect(r.totalBuyPrincipal).toBe(3000);
+    expect(r.sellProceeds).toBe(1500);
+    // 账户回本净值 = (3000−1500)/250 = 6
+    expect(r.accountBreakEvenNav).toBe(6);
+    expect(r.latestSellNav).toBe(3);
+  });
+
+  it('摊薄成本：无卖出时成本即总买入', () => {
+    const r = parseRecords('1-1 1000 2 500\n');
+    expect(r.diluted).toEqual({ cost: 1000, costPrice: 2, realizedPnl: 0 });
+    expect(r.accountBreakEvenNav).toBe(2);
+    expect(r.latestSellNav).toBeNull();
+  });
+
+  it('摊薄成本：全部卖出后无持仓，成本价与回本净值为 null', () => {
+    const r = parseRecords('1-1 1000 2 500\n- 1-2 1100 2.2 500\n');
+    expect(r.diluted.cost).toBe(0);
+    expect(r.diluted.costPrice).toBeNull();
+    expect(r.accountBreakEvenNav).toBeNull();
+  });
 });

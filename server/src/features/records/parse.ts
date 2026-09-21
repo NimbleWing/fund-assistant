@@ -40,6 +40,16 @@ export interface RecordsSummary {
   unmatchedSells: SellRecord[];
   /** 买入行份额与 本金÷净值 偏差超 1% 的疑似录入错误（时间/本金/净值/份额/推算份额） */
   anomalies: Anomaly[];
+  /** 摊薄成本口径（对齐基金 App 的「持仓收益」） */
+  diluted: DilutedSummary;
+  /** 全部买入本金合计 */
+  totalBuyPrincipal: number;
+  /** 全部卖出回款合计（份额×卖出净值） */
+  sellProceeds: number;
+  /** 账户回本净值（(总买入−总回款)÷持仓份额，总盈亏归零所需净值）；无持仓为 null */
+  accountBreakEvenNav: number | null;
+  /** 最后一条卖出的确认净值（供前端默认「最新净值」）；无卖出为 null */
+  latestSellNav: number | null;
 }
 
 export interface Anomaly {
@@ -51,8 +61,22 @@ export interface Anomaly {
   expectedShares: number;
 }
 
+/** 摊薄成本口径（对齐基金 App）：买入累加成本；卖出按当时平均成本价扣减，已实现盈亏滚入剩余持仓成本。 */
+export interface DilutedSummary {
+  /** 摊薄持仓成本 */
+  cost: number;
+  /** 摊薄成本价（成本÷当前份额，4 位）；无持仓为 null */
+  costPrice: number | null;
+  /** 摊薄口径已实现盈亏（回款 − 累计扣减成本） */
+  realizedPnl: number;
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
 }
 
 /** 份额相等判定（浮点安全，容差 1e-6）。 */
@@ -63,6 +87,8 @@ function sameShares(a: number, b: number): boolean {
 export function parseRecords(text: string): RecordsSummary {
   const buys: BuyRecord[] = [];
   const sells: SellRecord[] = [];
+  // 保序事件流（摊薄模拟需按文件顺序逐笔处理）
+  const events: { isSell: boolean; rec: BuyRecord }[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
@@ -72,6 +98,7 @@ export function parseRecords(text: string): RecordsSummary {
     const [time, p, nav, shares] = parts;
     const rec: BuyRecord = { time, principal: Number(p), nav: Number(nav), shares: Number(shares) };
     if (![rec.principal, rec.nav, rec.shares].every(Number.isFinite)) continue; // 非数字跳过
+    events.push({ isSell, rec });
     (isSell ? sells : buys).push(rec);
   }
 
@@ -131,6 +158,25 @@ export function parseRecords(text: string): RecordsSummary {
     holdingShares += buys[i].shares;
   }
 
+  // 摊薄成本模拟（按文件顺序）：买入累加成本；卖出按当时平均成本价扣减。
+  let dilutedCost = 0;
+  let liveShares = 0;
+  let deductedTotal = 0;
+  for (const ev of events) {
+    if (!ev.isSell) {
+      dilutedCost += ev.rec.principal;
+      liveShares += ev.rec.shares;
+    } else if (liveShares > 0) {
+      const sold = Math.min(ev.rec.shares, liveShares);
+      const deduct = sold * (dilutedCost / liveShares);
+      dilutedCost -= deduct;
+      deductedTotal += deduct;
+      liveShares -= sold;
+    }
+  }
+  const sellProceeds = sells.reduce((s, x) => s + x.shares * x.nav, 0);
+  const totalBuyPrincipal = buys.reduce((s, x) => s + x.principal, 0);
+
   return {
     rows,
     realizedPnl: round2(realizedPnl),
@@ -139,5 +185,14 @@ export function parseRecords(text: string): RecordsSummary {
     holdingShares: round2(holdingShares),
     unmatchedSells,
     anomalies,
+    diluted: {
+      cost: round2(dilutedCost),
+      costPrice: liveShares > 0 ? round4(dilutedCost / liveShares) : null,
+      realizedPnl: round2(sellProceeds - deductedTotal),
+    },
+    totalBuyPrincipal: round2(totalBuyPrincipal),
+    sellProceeds: round2(sellProceeds),
+    accountBreakEvenNav: liveShares > 0 ? round4((totalBuyPrincipal - sellProceeds) / liveShares) : null,
+    latestSellNav: sells.length > 0 ? (sells[sells.length - 1].nav as number) : null,
   };
 }

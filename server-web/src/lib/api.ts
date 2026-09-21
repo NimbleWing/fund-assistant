@@ -41,6 +41,14 @@ export interface RecordsData {
   unmatchedSells: { time: string; shares: number }[];
   /** 买入份额与 本金÷净值 偏差超 1% 的疑似录入错误 */
   anomalies: { time: string; principal: number; nav: number; shares: number; expectedShares: number }[];
+  /** 摊薄成本口径（对齐基金 App 的「持仓收益」） */
+  diluted: { cost: number; costPrice: number | null; realizedPnl: number };
+  totalBuyPrincipal: number;
+  sellProceeds: number;
+  /** 账户回本净值（总盈亏归零所需净值）；无持仓为 null */
+  accountBreakEvenNav: number | null;
+  /** 最后一条卖出的确认净值（默认「最新净值」）；无卖出为 null */
+  latestSellNav: number | null;
   error?: string;
 }
 

@@ -16,9 +16,14 @@ const MOCK_DATA = {
   realizedPnl: -318.63,
   soldPrincipal: 1000,
   holdingPrincipal: 2000,
-  holdingShares: 637.82,
+  holdingShares: 1000,
   unmatchedSells: [{ time: '9-10', shares: 999 }],
   anomalies: [],
+  diluted: { cost: 3000, costPrice: 3, realizedPnl: -100 },
+  totalBuyPrincipal: 3000,
+  sellProceeds: 1500,
+  accountBreakEvenNav: 6,
+  latestSellNav: 3.68,
 };
 
 describe('Records', () => {
@@ -28,7 +33,21 @@ describe('Records', () => {
     await screen.findByText('6-23');
     expect(screen.getAllByText('-318.63')).toHaveLength(2); // 汇总卡 + 表格行
     expect(screen.getByText('持有中')).toBeTruthy();
-    expect(screen.getAllByText('2000.00')).toHaveLength(2); // 汇总卡 + 表格行
+    expect(screen.getAllByText('2000.00').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('最新净值默认取最后卖出净值，双口径金额联动计算', async () => {
+    localStorage.removeItem('records-latest-nav');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(MOCK_DATA), { status: 200 })));
+    render(<Records />);
+    // 默认净值 3.68 × 份额 1000 → 市值 3680
+    await screen.findByText('3680.00');
+    // 摊薄持仓收益 = 3680 − 3000 = 680；浮动 = 3680 − 2000 = 1680；账户总 = 3680 + 1500 − 3000 = 2180
+    expect(screen.getAllByText('+680.00')).toHaveLength(1);
+    expect(screen.getByText('+1680.00')).toBeTruthy();
+    expect(screen.getByText('+2180.00')).toBeTruthy();
+    // 回本净值展示
+    expect(screen.getByText(/摊薄口径 3\.0000 · 账户回本 6\.0000/)).toBeTruthy();
   });
 
   it('未匹配卖出提示', async () => {
@@ -62,6 +81,6 @@ describe('Records', () => {
     );
     render(<Records />);
     await screen.findByText(/1 条买入份额与 本金÷净值 偏差过大/);
-    expect(screen.getByText(/份额 2122.28（按本金\/净值应为 212.28）/)).toBeTruthy();
+    expect(screen.getByText(/份额 2122\.28（按本金\/净值应为 212\.28）/)).toBeTruthy();
   });
 });

@@ -53,6 +53,11 @@ describe('App', () => {
             holdingShares: 207.37,
             unmatchedSells: [],
             anomalies: [],
+            diluted: { cost: 1000, costPrice: 4.8223, realizedPnl: 0 },
+            totalBuyPrincipal: 1000,
+            sellProceeds: 0,
+            accountBreakEvenNav: 4.8223,
+            latestSellNav: null,
           }),
           { status: 200 },
         );
