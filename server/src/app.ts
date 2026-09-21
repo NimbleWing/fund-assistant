@@ -4,6 +4,7 @@ import http from 'node:http';
 import { HttpError, json, type Route } from './lib/http.ts';
 import { serveStatic } from './lib/static.ts';
 import { systemRoutes } from './features/system/index.ts';
+import { recordsRoutes } from './features/records/index.ts';
 
 export const HOST = '127.0.0.1';
 export const PORT = 17521;
@@ -16,7 +17,7 @@ function isAllowedOrigin(origin: string): boolean {
   return ALLOWED_ORIGINS.includes(origin) || origin.startsWith('chrome-extension://');
 }
 
-const ROUTES: Route[] = [...systemRoutes];
+const ROUTES: Route[] = [...systemRoutes, ...recordsRoutes];
 
 /** 路径匹配：段精确相等；':x' 段为参数占位（如 /api/funds/:code）。未匹配返回 null。 */
 function matchPath(pattern: string, pathname: string): Record<string, string> | null {

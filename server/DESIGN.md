@@ -30,7 +30,8 @@
     │   ├── paths.ts      # SERVER_ROOT 锚定（src/lib/ → server/）
     │   └── static.ts     # public/ 静态服务（MIME 表 + 防路径穿越）
     ├── features/
-    │   └── system/       # 系统级接口：GET /api/health
+    │   ├── system/       # 系统级接口：GET /api/health
+    │   └── records/      # 临时：买卖记录分析（parse.ts 解析配对 + /api/records）
     └── test/setup.ts     # 全局测试 setup（后续 SQLite 在此切内存库）
 ```
 
@@ -66,3 +67,11 @@
 - `install-native.ps1`（或双击 `install-native.bat`）：生成 `com.fund.assistant.json`（type=stdio，path 指向 `native-host.cmd`，`allowed_origins` 锁定扩展 id）并写 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.fund.assistant`（HKCU 无需管理员）。安装产物 `.json` 与 `server.log` 不入库。
 - **安全边界**：`allowed_origins` 只允许本扩展；host 不接受除 start 外的任何指令；服务仅监听 127.0.0.1。
 - 扩展 id：dist/ 目录路径不变则 id 稳定；换路径/换机重装后需 `pwsh install-native.ps1 -ExtensionId <新id>`。
+
+## 7. 临时 feature：买卖记录分析（records/）
+
+**临时功能**：解析手动维护的仓库根目录 `buyAndSellRecord.txt`（每行 `时间 本金 确认净值 确认份额`，`-` 开头为卖出），`GET /api/records` 返回配对行与汇总。
+
+- `parse.ts` 纯逻辑（无 IO，单测覆盖）：卖出按出现顺序与最早的「未配对且确认份额相等」买入配对（同份额多条时 FIFO）；盈亏 = 份额 × 卖出净值 − 买入本金；未配对买入 = 持有中（pnl null）；配不上的卖出进 `unmatchedSells`。
+- `routes.ts`：读文件 → `parseRecords`；文件缺失返回 `ok:false`（不抛错）。
+- 脏行（字段数 ≠ 4、非数字、空行）跳过；时间仅按文件顺序展示，不解析日期。

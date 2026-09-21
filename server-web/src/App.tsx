@@ -1,16 +1,60 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Layout } from '@/components/Layout';
 import { fetchHealth } from '@/lib/api';
+import { Status } from '@/features/Status/Status';
+import { Records } from '@/features/Records/Records';
 
-// 应用外壳：标题 + 服务状态卡片（10s 轮询 /api/health）。后续 feature 以页签形式挂载。
-type Status = 'checking' | 'online' | 'offline';
+// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析），
+// 服务心跳轮询（10s）结果显示于顶栏 headerExtra。
+type Tab = 'status' | 'records';
 
-export function App() {
-  const [status, setStatus] = useState<Status>('checking');
+const icon = (path: ReactNode) => (
+  <svg
+    viewBox="0 0 24 24"
+    width="18"
+    height="18"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    {path}
+  </svg>
+);
+
+const TABS = [
+  {
+    key: 'status',
+    label: '服务状态',
+    icon: icon(
+      <>
+        <path d="M4 12h4l2.5-6 4 12 2.5-6h3" />
+      </>,
+    ),
+  },
+  {
+    key: 'records',
+    label: '买卖分析',
+    icon: icon(
+      <>
+        <rect x="4" y="3.5" width="16" height="17" rx="3" />
+        <path d="M8.5 8.5h7M8.5 12.5h7M8.5 16.5h4" />
+      </>,
+    ),
+  },
+] as const satisfies readonly { key: Tab; label: string; icon: ReactNode }[];
+
+export default function App() {
+  const [tab, setTab] = useState<Tab>('status');
+  const [online, setOnline] = useState<boolean | null>(null);
   const [service, setService] = useState('');
 
   const refresh = useCallback(async () => {
     const health = await fetchHealth();
-    setStatus(health?.ok ? 'online' : 'offline');
+    setOnline(health?.ok ?? false);
     setService(health?.service ?? '');
   }, []);
 
@@ -21,29 +65,20 @@ export function App() {
   }, [refresh]);
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-bold text-neutral-800">基金助手 · 管理页</h1>
-      <p className="mt-1 text-sm text-neutral-500">本地服务 127.0.0.1:17521</p>
-      <section className="mt-6 flex items-center gap-3 rounded-xl border border-neutral-200 p-4">
-        <span
-          className={`h-3 w-3 rounded-full ${
-            status === 'online' ? 'bg-emerald-500' : status === 'offline' ? 'bg-red-500' : 'bg-neutral-300'
-          }`}
-          aria-hidden
-        />
-        <div>
-          <p className="font-medium text-neutral-800">
-            {status === 'checking' ? '检测中…' : status === 'online' ? '服务在线' : '服务离线'}
-          </p>
-          {status === 'online' && service && <p className="text-sm text-neutral-500">{service}</p>}
-        </div>
-        <button
-          className="ml-auto rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-100"
-          onClick={() => void refresh()}
-        >
-          刷新
-        </button>
-      </section>
-    </main>
+    <Layout
+      title={
+        <>
+          <span aria-hidden className="inline-block size-2.5 shrink-0 rounded-full bg-brand shadow-[0_0_10px_#818cf8aa]" />
+          基金助手
+        </>
+      }
+      headerExtra={online == null ? '检测中…' : online ? `服务在线${service ? ` · ${service}` : ''}` : '服务离线'}
+      tabs={TABS}
+      activeTab={tab}
+      onTabChange={setTab}
+    >
+      {tab === 'status' && <Status online={online} service={service} onRefresh={() => void refresh()} />}
+      {tab === 'records' && <Records />}
+    </Layout>
   );
 }

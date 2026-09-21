@@ -17,3 +17,41 @@ export async function fetchHealth(timeoutMs = 2000): Promise<HealthInfo | null> 
     clearTimeout(timer);
   }
 }
+
+// ---- 临时分析：买卖记录（数据源 buyAndSellRecord.txt，由 server 解析配对） ----
+
+export interface PairRow {
+  buyTime: string;
+  principal: number;
+  buyNav: number;
+  shares: number;
+  sellTime: string | null;
+  sellNav: number | null;
+  /** 已实现盈亏；持有中为 null */
+  pnl: number | null;
+}
+
+export interface RecordsData {
+  ok: boolean;
+  rows: PairRow[];
+  realizedPnl: number;
+  soldPrincipal: number;
+  holdingPrincipal: number;
+  holdingShares: number;
+  unmatchedSells: { time: string; shares: number }[];
+  error?: string;
+}
+
+export async function fetchRecords(timeoutMs = 5000): Promise<RecordsData | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch('/api/records', { signal: ctrl.signal });
+    if (!res.ok) return null;
+    return (await res.json()) as RecordsData;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
