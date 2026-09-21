@@ -87,3 +87,36 @@ export async function fetchRecords(timeoutMs = 5000): Promise<RecordsData | null
     clearTimeout(timer);
   }
 }
+
+// ---- 基金搜索（server 代理天天基金 suggest，实时请求无本地缓存） ----
+
+export interface FundHit {
+  code: string;
+  name: string;
+  /** 基金类型；缺失为 null */
+  type: string | null;
+}
+
+export interface FundSearchData {
+  ok: boolean;
+  hits?: FundHit[];
+  error?: string;
+}
+
+/** 实时搜索：signal 由调用方控制（竞态丢弃）；超时/断网返回 null，远端失败返回 ok:false。 */
+export async function searchFunds(keyword: string, signal?: AbortSignal, timeoutMs = 6000): Promise<FundSearchData | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const onExternalAbort = () => ctrl.abort();
+  signal?.addEventListener('abort', onExternalAbort);
+  try {
+    const res = await fetch(`/api/funds/search?q=${encodeURIComponent(keyword)}`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    return (await res.json()) as FundSearchData;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onExternalAbort);
+  }
+}

@@ -79,3 +79,11 @@
 - 回放序列 `timeline`：摊薄模拟逐笔产出——每笔交易（明细：方向/时间/净值/金额/份额）+ 该步之后的状态快照（累计投入/摊薄成本/份额/均价/累计回款/本笔与累计已实现盈亏），供管理页「过程回放」页签做交互动画；末步快照与汇总字段一致。
 - `routes.ts`：读文件 → `parseRecords`；文件缺失返回 `ok:false`（不抛错）。
 - 脏行（字段数 ≠ 4、非数字、空行）跳过；时间仅按文件顺序展示，不解析日期。
+
+## 8. 基金搜索（funds/）
+
+实时模糊搜索（按代码/名称）：`GET /api/funds/search?q=xxx`，**服务端代理**天天基金 suggest 接口（`fundsuggest.eastmoney.com/FundSearchAPI.ashx?m=1&key=`，浏览器直连有跨域问题）。
+
+- `search.ts`：请求远端（超时 5s）+ 响应归一化为 `{code, name, type}`（type 取 `FundBaseInfo.FTYPE`，缺失为 null），上限 20 条；fetch 可注入便于单测 stub。
+- 空 q 直接返回空列表（不打远端）；远端失败/超时/响应结构异常返回 `ok:false`（不抛错，对齐 records 风格）。
+- 无本地缓存——每次请求实时打远端（用户明确不要全量清单方案）。

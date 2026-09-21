@@ -17,13 +17,14 @@ React 19 + TypeScript strict + Tailwind CSS v4 + Vite + Vitest，独立 npm 包�
 ```
 src/
 ├── main.tsx                      # 入口（StrictMode + createRoot）
-├── App.tsx                       # 外壳：Layout + 侧边栏页签（服务状态 / 买卖分析）+ 心跳轮询（10s，结果显示于顶栏）
+├── App.tsx                       # 外壳：Layout + 侧边栏页签（服务状态 / 买卖分析 / 过程回放 / 基金搜索）+ 心跳轮询（10s，结果显示于顶栏）
 ├── components/
 │   └── Layout/                   # 页面骨架（顶栏 + 侧边栏 + 内容区）
 ├── features/
 │   ├── Status/                   # 服务状态页（心跳徽标 + 手动刷新）
 │   ├── Records/                  # 临时分析页：双口径（逐笔配对 + 摊薄成本）汇总卡、最新净值输入（localStorage 记忆，默认最后卖出净值；持有行联动显示逐笔浮动盈亏）、回本净值、配对表（红盈绿亏；未匹配卖出/份额异常黄色警示）
-│   └── Timeline/                 # 过程回放页：播放器（播放/步进/拖拽/倍速）+ 当前笔卡片 + 六状态卡 + SVG 走势图（净值线 + 摊薄均价虚线，买▲卖▼，光标右侧淡出；数据源 timeline 字段，纯手绘无第三方库）
+│   ├── Timeline/                 # 过程回放页：播放器（播放/步进/拖拽/倍速）+ 当前笔卡片 + 六状态卡 + SVG 走势图（净值线 + 摊薄均价虚线，买▲卖▼，光标右侧淡出；数据源 timeline 字段，纯手绘无第三方库）
+│   └── Funds/                    # 基金搜索页：实时模糊搜索（代码/名称，经 server 代理天天基金 suggest）；防抖 300ms + 请求序号竞态丢弃（慢响应不覆盖新结果）；加载中/无结果/远端失败三态
 ├── lib/api.ts                    # API 客户端（超时归一，fetch 走 /api 同源/代理）
 ├── styles.css                    # @import "tailwindcss" + @theme 令牌 + 组件类
 └── test/setup.ts                 # React act 环境
