@@ -6,10 +6,11 @@ import { Status } from '@/features/Status/Status';
 import { Records } from '@/features/Records/Records';
 import { Timeline } from '@/features/Timeline/Timeline';
 import { Funds } from '@/features/Funds/Funds';
+import { Watchlist } from '@/features/Watchlist/Watchlist';
 
-// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析 / 过程回放 / 基金搜索），
+// 应用外壳（对齐 video-assistant）：Layout 顶栏 + 侧边栏页签（服务状态 / 买卖分析 / 过程回放 / 基金搜索 / 关注列表），
 // 服务心跳轮询（10s）结果显示于顶栏 headerExtra。
-type Tab = 'status' | 'records' | 'timeline' | 'funds';
+type Tab = 'status' | 'records' | 'timeline' | 'funds' | 'watchlist';
 
 const icon = (path: ReactNode) => (
   <svg
@@ -68,6 +69,15 @@ const TABS = [
       </>,
     ),
   },
+  {
+    key: 'watchlist',
+    label: '关注列表',
+    icon: icon(
+      <>
+        <path d="M12 4.5l2.2 4.6 5 .6-3.7 3.4 1 4.9-4.5-2.5-4.5 2.5 1-4.9L4.8 9.7l5-.6z" />
+      </>,
+    ),
+  },
 ] as const satisfies readonly { key: Tab; label: string; icon: ReactNode }[];
 
 export default function App() {
@@ -104,6 +114,7 @@ export default function App() {
       {tab === 'records' && <Records />}
       {tab === 'timeline' && <Timeline />}
       {tab === 'funds' && <Funds />}
+      {tab === 'watchlist' && <Watchlist />}
     </Layout>
   );
 }

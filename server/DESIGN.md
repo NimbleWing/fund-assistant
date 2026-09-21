@@ -8,7 +8,7 @@
 
 ## 2. 技术选型与运行方式
 
-- **TypeScript + Node 原生 type stripping**：要求 **Node ≥22.18**（本机 24.x）。源码即运行时（`node src/server.ts`），零构建、零产物入库、**零运行时 npm 依赖**（`node:http`；后续数据存储用 `node:sqlite`）。约束：仅 erasable 语法（不用 enum/namespace/参数属性）；import 必须带 `.ts` 扩展；类型检查只在开发期 `npm run check`（tsc --noEmit + vitest，devDeps：typescript / @types/node / vitest，**npm install 不是运行前提**）。
+- **TypeScript + Node 原生 type stripping**：要求 **Node ≥22.18**（本机 24.x）。源码即运行时（`node src/server.ts`），零构建、零产物入库、**零运行时 npm 依赖**（`node:http`；数据存储用 `node:sqlite`，见 §9）。约束：仅 erasable 语法（不用 enum/namespace/参数属性）；import 必须带 `.ts` 扩展；类型检查只在开发期 `npm run check`（tsc --noEmit + vitest，devDeps：typescript / @types/node / vitest，**npm install 不是运行前提**）。
 - `package.json` 显式 `"type": "module"`——否则 `.ts` 按 CJS 解析直接崩溃。
 
 ## 3. 结构（按 feature 组织，对齐 video-assistant server）
@@ -31,7 +31,9 @@
     │   └── static.ts     # public/ 静态服务（MIME 表 + 防路径穿越）
     ├── features/
     │   ├── system/       # 系统级接口：GET /api/health
-    │   └── records/      # 临时：买卖记录分析（parse.ts 解析配对 + /api/records）
+    │   ├── records/      # 临时：买卖记录分析（parse.ts 解析配对 + /api/records）
+    │   ├── funds/        # 基金实时搜索（/api/funds/search，代理天天基金 suggest，见 §8）
+    │   └── watchlist/    # 关注基金列表（SQLite 持久化 + /api/watchlist，见 §9）
     └── test/setup.ts     # 全局测试 setup（后续 SQLite 在此切内存库）
 ```
 
@@ -41,7 +43,7 @@
 
 - 路径匹配：段精确相等；`:x` 段为参数占位。
 - 仅监听 `127.0.0.1`。
-- 写操作（POST/PUT）校验 Origin：本机管理页 + vite 开发服（`localhost:5173` / `127.0.0.1:5173`）+ `chrome-extension://`（扩展 id 待首个构建加载后锁定白名单）；无 Origin（curl 等）放行。
+- 写操作（POST/PUT/DELETE）校验 Origin：本机管理页 + vite 开发服（`localhost:5173` / `127.0.0.1:5173`）+ `chrome-extension://`（扩展 id 待首个构建加载后锁定白名单）；无 Origin（curl 等）放行。
 - 静态服务归一化路径限制在 `public/` 内，防路径穿越。
 
 ## 5. 启动
@@ -87,3 +89,11 @@
 - `search.ts`：请求远端（超时 5s）+ 响应归一化为 `{code, name, type}`（type 取 `FundBaseInfo.FTYPE`，缺失为 null），上限 20 条；fetch 可注入便于单测 stub。
 - 空 q 直接返回空列表（不打远端）；远端失败/超时/响应结构异常返回 `ok:false`（不抛错，对齐 records 风格）。
 - 无本地缓存——每次请求实时打远端（用户明确不要全量清单方案）。
+
+## 9. 关注基金列表（watchlist/）
+
+首个持久化功能。存储用 **node:sqlite**（Node 22 内置 `DatabaseSync`，实验性警告可忽略），库文件 `server/fund.db` **随仓库提交**（journal/wal/shm 临时文件不入库）；schema 由 `store.ts` 打开时保证（`CREATE TABLE IF NOT EXISTS`），测试注入 `:memory:` 隔离。
+
+- 表 `watchlist`：`id INTEGER PRIMARY KEY AUTOINCREMENT`、`code TEXT UNIQUE NOT NULL`、`name TEXT NOT NULL`、`type TEXT`、`created_at TEXT`、`updated_at TEXT`、`active INTEGER NOT NULL DEFAULT 1`。
+- **取消关注为软删除**（`active=0` + 更新 `updated_at`）：后续将基于关注列表派生每日净值写入任务，取消关注伴随关联清理，硬删除留到该任务落地时一并处理。重复关注幂等：`ON CONFLICT(code)` 复活并刷新 name/type/updated_at。
+- 路由：`GET /api/watchlist`（仅 active=1）/ `POST /api/watchlist {code,name,type}`（关注或复活）/ `DELETE /api/watchlist/:code`（软删除）。`lib/http.ts` 的 `Route.method` 含 `'DELETE'`；`app.ts` 的 Origin 写守卫覆盖 POST/PUT/DELETE。

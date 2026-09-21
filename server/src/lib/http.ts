@@ -82,7 +82,7 @@ export interface RequestContext {
 export type RouteHandler = (ctx: RequestContext) => Promise<void> | void;
 
 export interface Route {
-  method: 'GET' | 'POST' | 'PUT' | 'HEAD';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD';
   path: string;
   handler: RouteHandler;
 }

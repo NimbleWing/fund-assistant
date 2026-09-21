@@ -120,3 +120,52 @@ export async function searchFunds(keyword: string, signal?: AbortSignal, timeout
     signal?.removeEventListener('abort', onExternalAbort);
   }
 }
+
+// ---- 关注基金列表（server 端 SQLite 持久化；取消关注为软删除） ----
+
+export interface WatchRow {
+  id: number;
+  code: string;
+  name: string;
+  type: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WatchlistData {
+  ok: boolean;
+  rows?: WatchRow[];
+  row?: WatchRow;
+  removed?: boolean;
+  error?: string;
+}
+
+async function callApi<T>(path: string, init?: RequestInit, timeoutMs = 5000): Promise<T | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(path, { ...init, signal: ctrl.signal });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function fetchWatchlist(): Promise<WatchlistData | null> {
+  return callApi<WatchlistData>('/api/watchlist');
+}
+
+export function followFund(fund: { code: string; name: string; type: string | null }): Promise<WatchlistData | null> {
+  return callApi<WatchlistData>('/api/watchlist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fund),
+  });
+}
+
+export function unfollowFund(code: string): Promise<WatchlistData | null> {
+  return callApi<WatchlistData>(`/api/watchlist/${encodeURIComponent(code)}`, { method: 'DELETE' });
+}

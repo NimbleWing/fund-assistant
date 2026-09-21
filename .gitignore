@@ -144,8 +144,10 @@ vite.config.ts.timestamp-*
 
 # Extension build output（dist/，esbuild 产物，不入库——由上方通用 dist 规则覆盖）
 
-# 本地服务运行时数据（SQLite 库等）
-server/*.db*
+# 本地服务运行时数据（fund.db 本身入库；journal/wal/shm 为运行时临时产物）
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm
 server/server.log
 
 # Native messaging install artifact
