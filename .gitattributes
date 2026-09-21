@@ -1,0 +1,5 @@
+# 全仓库强制 LF 行尾（Windows 上编辑器均支持；Git 检出不再转 CRLF）
+* text=auto eol=lf
+
+# SQLite 库为二进制，禁止任何行尾/文本转换
+*.db binary
