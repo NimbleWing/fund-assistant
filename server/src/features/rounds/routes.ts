@@ -4,7 +4,7 @@ import { asRecord, HttpError, json, readJson, type Route } from '../../lib/http.
 import { openWatchStore, type WatchStore } from '../watchlist/store.ts';
 import { openNavStore, type NavStore } from '../nav/store.ts';
 import { openRoundsStore, type RoundsStore, type RoundRow } from './store.ts';
-import { calcRound, type RoundMetrics } from './calc.ts';
+import { calcRound, openBuyLots, type RoundMetrics } from './calc.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** 持有份额浮点噪声容差（份额两位小数累加） */
@@ -16,7 +16,18 @@ interface Stores {
   rounds?: RoundsStore;
 }
 
-function toResponse(round: RoundRow, txns: ReturnType<RoundsStore['listTxns']>, metrics: RoundMetrics) {
+/** 持有中的买入批次（供卖出录入的显式配对选择）。 */
+interface OpenBuy {
+  id: number;
+  date: string;
+  nav: number;
+  /** 剩余份额 */
+  shares: number;
+  /** 剩余本金 */
+  principal: number;
+}
+
+function toResponse(round: RoundRow, txns: ReturnType<RoundsStore['listTxns']>, metrics: RoundMetrics, openBuys: OpenBuy[]) {
   return {
     id: round.id,
     fundCode: round.fundCode,
@@ -25,7 +36,8 @@ function toResponse(round: RoundRow, txns: ReturnType<RoundsStore['listTxns']>, 
     createdAt: round.createdAt,
     closedAt: round.closedAt,
     metrics,
-    txns: txns.map((t) => ({ id: t.id, direction: t.direction, date: t.date, amount: t.amount, nav: t.nav, shares: t.shares, fee: t.fee })),
+    openBuys,
+    txns: txns.map((t) => ({ id: t.id, direction: t.direction, date: t.date, amount: t.amount, nav: t.nav, shares: t.shares, fee: t.fee, pairBuyId: t.pairBuyId })),
   };
 }
 
@@ -38,11 +50,12 @@ export function roundsRoutes(stores?: Stores): Route[] {
   const rounds = (): RoundsStore => (lazyRounds ??= openRoundsStore());
 
   /** 已清仓轮指标直接读快照；进行中轮动态计算（最新净值取 fund_nav 最新一条）。 */
-  const metricsOf = (round: RoundRow): { metrics: RoundMetrics; txns: ReturnType<RoundsStore['listTxns']> } => {
+  const metricsOf = (round: RoundRow): { metrics: RoundMetrics; txns: ReturnType<RoundsStore['listTxns']>; openBuys: OpenBuy[] } => {
     const txns = rounds().listTxns(round.id);
     if (round.status === 'closed') {
       return {
         txns,
+        openBuys: [],
         metrics: {
           buyCount: round.buyCount ?? 0,
           sellCount: round.sellCount ?? 0,
@@ -64,7 +77,12 @@ export function roundsRoutes(stores?: Stores): Route[] {
     }
     const fund = watch().findByCode(round.fundCode);
     const latest = fund ? nav().latestByFund(fund.id) : null;
-    return { txns, metrics: calcRound(txns, latest?.unitNav ?? null) };
+    const byId = new Map(txns.map((t) => [t.id, t]));
+    const openBuys = openBuyLots(txns).flatMap((l) => {
+      const t = l.id != null ? byId.get(l.id) : undefined;
+      return l.id != null && t ? [{ id: l.id, date: t.date, nav: t.nav, shares: l.shares, principal: l.principal }] : [];
+    });
+    return { txns, metrics: calcRound(txns, latest?.unitNav ?? null), openBuys };
   };
 
   const mustActiveRound = (id: number): RoundRow => {
@@ -86,8 +104,8 @@ export function roundsRoutes(stores?: Stores): Route[] {
           rounds: rounds()
             .listRounds(fundCode)
             .map((r) => {
-              const { metrics, txns } = metricsOf(r);
-              return toResponse(r, txns, metrics);
+              const { metrics, txns, openBuys } = metricsOf(r);
+              return toResponse(r, txns, metrics, openBuys);
             }),
         });
       },
@@ -102,8 +120,8 @@ export function roundsRoutes(stores?: Stores): Route[] {
         if (!fund || fund.active !== 1) throw new HttpError(400, '该基金不在关注列表');
         if (rounds().activeRound(fundCode)) throw new HttpError(400, '该基金已有进行中的轮');
         const round = rounds().createRound(fundCode);
-        const { metrics, txns } = metricsOf(round);
-        json(res, 200, { ok: true, round: toResponse(round, txns, metrics) });
+        const { metrics, txns, openBuys } = metricsOf(round);
+        json(res, 200, { ok: true, round: toResponse(round, txns, metrics, openBuys) });
       },
     },
     {
@@ -124,13 +142,27 @@ export function roundsRoutes(stores?: Stores): Route[] {
         if (!Number.isFinite(navValue) || navValue <= 0) throw new HttpError(400, 'nav 需为正数');
         if (!Number.isFinite(shares) || shares <= 0) throw new HttpError(400, 'shares 需为正数');
         if (!Number.isFinite(fee) || fee < 0) throw new HttpError(400, 'fee 需为非负数');
+        const pairBuyId = body?.pairBuyId == null ? null : Number(body.pairBuyId);
+        if (pairBuyId != null && (!Number.isInteger(pairBuyId) || pairBuyId <= 0)) throw new HttpError(400, 'pairBuyId 需为正整数');
+        if (direction !== 'sell' && pairBuyId != null) throw new HttpError(400, 'pairBuyId 仅卖出适用');
         if (direction === 'sell') {
-          const { holdingShares } = calcRound(rounds().listTxns(round.id), null);
+          const existing = rounds().listTxns(round.id);
+          if (pairBuyId != null) {
+            const buy = existing.find((t) => t.id === pairBuyId);
+            if (!buy || buy.direction !== 'buy') throw new HttpError(400, '配对买入不存在或不属于本轮');
+            // 该买入已被显式配对消耗的份额 + 本次卖出不得超过其确认份额
+            const pairedShares = existing.filter((t) => t.pairBuyId === pairBuyId).reduce((s, t) => s + t.shares, 0);
+            if (pairedShares + shares > buy.shares + SHARE_EPS) {
+              const r2 = (n: number) => Math.round(n * 100) / 100;
+              throw new HttpError(400, `配对买入剩余份额不足（已配对 ${r2(pairedShares)} / ${buy.shares} 份）`);
+            }
+          }
+          const { holdingShares } = calcRound(existing, null);
           if (shares > holdingShares + SHARE_EPS) throw new HttpError(400, `卖出份额超过当前持有（${holdingShares} 份）`);
         }
-        rounds().addTxn(round.id, { direction, date, amount, nav: navValue, shares, fee });
-        const { metrics, txns } = metricsOf(round);
-        json(res, 200, { ok: true, round: toResponse(round, txns, metrics) });
+        rounds().addTxn(round.id, { direction, date, amount, nav: navValue, shares, fee, pairBuyId });
+        const { metrics, txns, openBuys } = metricsOf(round);
+        json(res, 200, { ok: true, round: toResponse(round, txns, metrics, openBuys) });
       },
     },
     {
@@ -138,10 +170,17 @@ export function roundsRoutes(stores?: Stores): Route[] {
       path: '/api/rounds/:id/txns/:txnId',
       handler: ({ res, params }) => {
         const round = mustActiveRound(Number(params.id));
-        const removed = rounds().deleteTxn(round.id, Number(params.txnId));
+        const txnId = Number(params.txnId);
+        // 被显式配对的买入不可直接删除（需先删除对应卖出），避免配对悬空
+        const txnsBefore = rounds().listTxns(round.id);
+        const target = txnsBefore.find((t) => t.id === txnId);
+        if (target?.direction === 'buy' && txnsBefore.some((t) => t.pairBuyId === txnId)) {
+          throw new HttpError(400, '该买入已被卖出显式配对，请先删除对应卖出记录');
+        }
+        const removed = rounds().deleteTxn(round.id, txnId);
         if (!removed) throw new HttpError(404, '交易记录不存在');
-        const { metrics, txns } = metricsOf(round);
-        json(res, 200, { ok: true, round: toResponse(round, txns, metrics) });
+        const { metrics, txns, openBuys } = metricsOf(round);
+        json(res, 200, { ok: true, round: toResponse(round, txns, metrics, openBuys) });
       },
     },
     {
@@ -163,8 +202,8 @@ export function roundsRoutes(stores?: Stores): Route[] {
           totalPnl: m.realizedPnl, // 清仓后总盈亏 = 已实现盈亏
         });
         const closed = rounds().getRound(round.id) as RoundRow;
-        const { metrics, txns } = metricsOf(closed);
-        json(res, 200, { ok: true, round: toResponse(closed, txns, metrics) });
+        const { metrics, txns, openBuys } = metricsOf(closed);
+        json(res, 200, { ok: true, round: toResponse(closed, txns, metrics, openBuys) });
       },
     },
   ];

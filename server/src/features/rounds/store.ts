@@ -32,6 +32,8 @@ export interface TxnRow {
   shares: number;
   /** 手续费（仅卖出有意义，买入为 0） */
   fee: number;
+  /** 显式配对的买入交易 id（仅卖出有意义；null = 自动 FIFO） */
+  pairBuyId: number | null;
   createdAt: string;
 }
 
@@ -71,11 +73,12 @@ CREATE TABLE IF NOT EXISTS round_txn(
   nav        REAL NOT NULL,
   shares     REAL NOT NULL,
   fee        REAL NOT NULL DEFAULT 0,
+  pair_buy_id INTEGER,
   created_at TEXT NOT NULL
 )`;
 
 const COLS = 'id, fund_code AS fundCode, seq, status, buy_count AS buyCount, sell_count AS sellCount, invested, proceeds, realized_pnl AS realizedPnl, sold_principal AS soldPrincipal, total_pnl AS totalPnl, created_at AS createdAt, closed_at AS closedAt';
-const TXN_COLS = 'id, round_id AS roundId, direction, date, amount, nav, shares, fee, created_at AS createdAt';
+const TXN_COLS = 'id, round_id AS roundId, direction, date, amount, nav, shares, fee, pair_buy_id AS pairBuyId, created_at AS createdAt';
 
 export interface RoundsStore {
   listRounds(fundCode: string): RoundRow[];
@@ -85,7 +88,7 @@ export interface RoundsStore {
   /** 开轮：seq = 该基金现有最大 seq + 1。 */
   createRound(fundCode: string): RoundRow;
   listTxns(roundId: number): TxnRow[];
-  addTxn(roundId: number, txn: { direction: TxnDirection; date: string; amount: number; nav: number; shares: number; fee?: number }): TxnRow;
+  addTxn(roundId: number, txn: { direction: TxnDirection; date: string; amount: number; nav: number; shares: number; fee?: number; pairBuyId?: number | null }): TxnRow;
   /** 删除一条交易；返回是否有行被删。 */
   deleteTxn(roundId: number, txnId: number): boolean;
   /** 闭轮：写入快照 + closed_at，状态置 closed。 */
@@ -97,10 +100,13 @@ export interface RoundsStore {
 export function openRoundsStore(dbPath: string = DB_FILE): RoundsStore {
   const db = new DatabaseSync(dbPath);
   db.exec(SCHEMA);
-  // 存量库迁移：round_txn 缺 fee 列时补上
+  // 存量库迁移：round_txn 缺 fee / pair_buy_id 列时补上
   const txnCols = db.prepare("SELECT name FROM pragma_table_info('round_txn')").all() as unknown as { name: string }[];
   if (!txnCols.some((c) => c.name === 'fee')) {
     db.exec('ALTER TABLE round_txn ADD COLUMN fee REAL NOT NULL DEFAULT 0');
+  }
+  if (!txnCols.some((c) => c.name === 'pair_buy_id')) {
+    db.exec('ALTER TABLE round_txn ADD COLUMN pair_buy_id INTEGER');
   }
 
   const stmtList = db.prepare(`SELECT ${COLS} FROM round WHERE fund_code = ? ORDER BY seq`);
@@ -109,7 +115,7 @@ export function openRoundsStore(dbPath: string = DB_FILE): RoundsStore {
   const stmtMaxSeq = db.prepare('SELECT COALESCE(MAX(seq), 0) AS maxSeq FROM round WHERE fund_code = ?');
   const stmtCreate = db.prepare(`INSERT INTO round(fund_code, seq, status, created_at) VALUES (?, ?, 'active', ?)`);
   const stmtTxns = db.prepare(`SELECT ${TXN_COLS} FROM round_txn WHERE round_id = ? ORDER BY id`);
-  const stmtAddTxn = db.prepare('INSERT INTO round_txn(round_id, direction, date, amount, nav, shares, fee, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const stmtAddTxn = db.prepare('INSERT INTO round_txn(round_id, direction, date, amount, nav, shares, fee, pair_buy_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const stmtGetTxn = db.prepare(`SELECT ${TXN_COLS} FROM round_txn WHERE id = ?`);
   const stmtDelTxn = db.prepare('DELETE FROM round_txn WHERE id = ? AND round_id = ?');
   const stmtClose = db.prepare(`
@@ -129,7 +135,7 @@ export function openRoundsStore(dbPath: string = DB_FILE): RoundsStore {
     },
     listTxns: (roundId) => stmtTxns.all(roundId) as unknown as TxnRow[],
     addTxn(roundId, txn) {
-      const id = Number(stmtAddTxn.run(roundId, txn.direction, txn.date, txn.amount, txn.nav, txn.shares, txn.fee ?? 0, new Date().toISOString()).lastInsertRowid);
+      const id = Number(stmtAddTxn.run(roundId, txn.direction, txn.date, txn.amount, txn.nav, txn.shares, txn.fee ?? 0, txn.pairBuyId ?? null, new Date().toISOString()).lastInsertRowid);
       return stmtGetTxn.get(id) as unknown as TxnRow;
     },
     deleteTxn: (roundId, txnId) => Number(stmtDelTxn.run(txnId, roundId).changes) > 0,

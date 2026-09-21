@@ -218,6 +218,8 @@ export interface RoundTxn {
   shares: number;
   /** 手续费（仅卖出有意义，买入为 0） */
   fee: number;
+  /** 显式配对的买入交易 id（仅卖出；null = 自动 FIFO） */
+  pairBuyId: number | null;
 }
 
 export interface RoundMetrics {
@@ -238,6 +240,18 @@ export interface RoundMetrics {
   totalPnl: number | null;
 }
 
+/** 持有中的买入批次（卖出录入的显式配对选项）。 */
+export interface OpenBuyLot {
+  /** 买入交易 id */
+  id: number;
+  date: string;
+  nav: number;
+  /** 剩余份额 */
+  shares: number;
+  /** 剩余本金 */
+  principal: number;
+}
+
 export interface RoundData {
   id: number;
   fundCode: string;
@@ -246,6 +260,8 @@ export interface RoundData {
   createdAt: string;
   closedAt: string | null;
   metrics: RoundMetrics;
+  /** 持有中的买入批次（进行中轮动态计算；已清仓轮恒为空） */
+  openBuys: OpenBuyLot[];
   txns: RoundTxn[];
 }
 

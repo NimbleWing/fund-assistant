@@ -10,7 +10,7 @@ import { HttpError, json, type Route } from '../../lib/http.ts';
 import { openWatchStore } from '../watchlist/store.ts';
 import { openNavStore } from '../nav/store.ts';
 import { openRoundsStore } from './store.ts';
-import { calcRound, type RoundTxnInput } from './calc.ts';
+import { calcRound, openBuyLots, type RoundTxnInput } from './calc.ts';
 import { roundsRoutes } from './routes.ts';
 
 describe('calcRound', () => {
@@ -56,10 +56,39 @@ describe('calcRound', () => {
     const m = calcRound([buy(1000, 2, 500), sell(1250, 2.5, 500)], 3);
     expect(m).toMatchObject({ holdingShares: 0, holdingPrincipal: 0, realizedPnl: 250, totalPnl: 250, marketValue: 0 });
   });
+
+  it('显式配对：卖出指定 pairBuyId 时整笔消耗该买入（而非 FIFO 的最早批次）', () => {
+    // 买A 1000@2=500份、买B 2000@4=500份；卖 500 份显式配对 B，回款 2600（@5.2）
+    // 纯 FIFO 会消耗 A → 已卖本金 1000；显式配对消耗 B → 已卖本金 2000，已实现 +600，持有为 A 的 1000
+    const txns: RoundTxnInput[] = [
+      { id: 1, direction: 'buy', amount: 1000, nav: 2, shares: 500 },
+      { id: 2, direction: 'buy', amount: 2000, nav: 4, shares: 500 },
+      { id: 3, direction: 'sell', amount: 2600, nav: 5.2, shares: 500, pairBuyId: 2 },
+    ];
+    const m = calcRound(txns, 5.2);
+    expect(m).toMatchObject({
+      invested: 3000, proceeds: 2600, soldPrincipal: 2000, realizedPnl: 600,
+      holdingShares: 500, holdingPrincipal: 1000,
+      marketValue: 2600, floatingPnl: 1600, totalPnl: 2200,
+    });
+    expect(openBuyLots(txns)).toEqual([{ id: 1, shares: 500, principal: 1000 }]);
+  });
+
+  it('显式配对不足部分退回 FIFO：卖出份额超过配对批次剩余时跨批次消耗', () => {
+    // 买A 1000@2=500份、买B 2000@4=500份；卖 750 份显式配对 A → 消耗 A 全部 500 份（本金 1000）+ FIFO 从 B 取 250 份（本金 1000）
+    const txns: RoundTxnInput[] = [
+      { id: 1, direction: 'buy', amount: 1000, nav: 2, shares: 500 },
+      { id: 2, direction: 'buy', amount: 2000, nav: 4, shares: 500 },
+      { id: 3, direction: 'sell', amount: 2250, nav: 3, shares: 750, pairBuyId: 1 },
+    ];
+    const m = calcRound(txns, 3);
+    expect(m).toMatchObject({ soldPrincipal: 2000, realizedPnl: 250, holdingShares: 250, holdingPrincipal: 1000 });
+    expect(openBuyLots(txns)).toEqual([{ id: 2, shares: 250, principal: 1000 }]);
+  });
 });
 
 describe('rounds store', () => {
-  it('round_txn fee 迁移：旧表无 fee 列时打开自动补列，存量行默认 0', async () => {
+  it('round_txn 迁移：旧表缺 fee / pair_buy_id 列时打开自动补列，存量行默认 0 / null', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rounds-migrate-'));
     const file = path.join(dir, 't.db');
     try {
@@ -71,6 +100,7 @@ describe('rounds store', () => {
       db.close();
       const s = openRoundsStore(file);
       expect(s.listTxns(1)[0]?.fee).toBe(0);
+      expect(s.listTxns(1)[0]?.pairBuyId).toBeNull();
       s.close();
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -197,5 +227,36 @@ describe('rounds routes', () => {
     ).json()) as { round: { metrics: { invested: number; holdingShares: number }; txns: unknown[] } };
     expect(after.round.metrics.invested).toBe(0);
     expect(after.round.txns).toHaveLength(0);
+  });
+
+  it('卖出显式配对：指标按配对批次计算；被配对买入不可删，先删卖出后可删', async () => {
+    const rid = rounds.activeRound('018994')?.id;
+    interface TxnView { id: number; pairBuyId: number | null }
+    interface RoundView { metrics: { soldPrincipal: number; realizedPnl: number; holdingPrincipal: number }; txns: TxnView[]; openBuys: { id: number; shares: number }[] }
+    const afterB1 = (await (await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-22', amount: 1000, nav: 2, shares: 500 })).json()) as { round: RoundView };
+    const afterB2 = (await (await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-22', amount: 2000, nav: 4, shares: 500 })).json()) as { round: RoundView };
+    const b1 = afterB1.round.txns[0]?.id as number;
+    const b2 = afterB2.round.txns[1]?.id as number;
+    expect(afterB2.round.openBuys.map((b) => b.id)).toEqual([b1, b2]);
+
+    // 非法配对：买入带 pairBuyId / 批次不存在 / 超过配对批次份额 → 400
+    expect((await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-22', amount: 1, nav: 1, shares: 1, pairBuyId: b1 })).status).toBe(400);
+    expect((await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-22', amount: 1, nav: 1, shares: 1, pairBuyId: 999999 })).status).toBe(400);
+    expect((await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-22', amount: 1, nav: 1, shares: 600, pairBuyId: b1 })).status).toBe(400);
+
+    // 显式配对 b2 卖出 500 份（回款 2600@5.2）：已卖本金 = b2 本金 2000，已实现 600，持有为 b1 的 1000
+    const afterSell = (await (
+      await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-22', amount: 2600, nav: 5.2, shares: 500, pairBuyId: b2 })
+    ).json()) as { round: RoundView };
+    expect(afterSell.round.metrics).toMatchObject({ soldPrincipal: 2000, realizedPnl: 600, holdingPrincipal: 1000 });
+    expect(afterSell.round.txns[2]?.pairBuyId).toBe(b2);
+    expect(afterSell.round.openBuys.map((b) => b.id)).toEqual([b1]);
+
+    // 被显式配对的买入不可删 → 400；先删卖出后可删
+    expect((await fetch(`${base}/api/rounds/${rid}/txns/${b2}`, { method: 'DELETE' })).status).toBe(400);
+    const sellId = afterSell.round.txns[2]?.id as number;
+    await fetch(`${base}/api/rounds/${rid}/txns/${sellId}`, { method: 'DELETE' });
+    expect((await fetch(`${base}/api/rounds/${rid}/txns/${b2}`, { method: 'DELETE' })).status).toBe(200);
+    await fetch(`${base}/api/rounds/${rid}/txns/${b1}`, { method: 'DELETE' });
   });
 });

@@ -23,7 +23,8 @@ function makeRound(over: Partial<RoundData> = {}): RoundData {
       holdingPrincipal: 1000, holdingShares: 500, dilutedCost: 1000, dilutedRealizedPnl: 0,
       latestNav: 3.722, marketValue: 1861, floatingPnl: 861, dilutedHoldingPnl: 861, totalPnl: 861,
     },
-    txns: [{ id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0 }],
+    openBuys: [{ id: 11, date: '2026-09-01', nav: 2, shares: 500, principal: 1000 }],
+    txns: [{ id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null }],
     ...over,
   };
 }
@@ -172,5 +173,78 @@ describe('Rounds', () => {
     render(<Rounds />);
     await screen.findByText('第 1 轮');
     expect(screen.getByRole('button', { name: '开始新一轮' })).toHaveProperty('disabled', true);
+  });
+
+  it('买入行内卖出：点击卖出按钮自动配对（份额锁定带出），提交带 pairBuyId；✕ 取消配对', async () => {
+    const round = makeRound(); // openBuys 含 id=11 的 500 份买入
+    stubApi((url, init) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      if (url.includes('/txns') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ ok: true, round: makeRound() }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    // 初始为买入方向，确认份额可编辑
+    expect((screen.getByLabelText('确认份额') as HTMLInputElement).disabled).toBe(false);
+    // 点击买入行的「卖出」按钮 → 自动切卖出方向 + 配对提示 + 份额锁定为该批次剩余份额
+    fireEvent.click(screen.getByRole('button', { name: '卖出' }));
+    await screen.findByText(/配对 2026-09-01 买入/);
+    expect((screen.getByLabelText('确认份额') as HTMLInputElement).value).toBe('500');
+    expect((screen.getByLabelText('确认份额') as HTMLInputElement).disabled).toBe(true);
+    // ✕ 取消配对 → 回到自动 FIFO，份额恢复可编辑
+    fireEvent.click(screen.getByRole('button', { name: '✕' }));
+    expect((screen.getByLabelText('确认份额') as HTMLInputElement).disabled).toBe(false);
+    // 重新发起配对并提交
+    fireEvent.click(screen.getByRole('button', { name: '卖出' }));
+    await screen.findByText(/配对 2026-09-01 买入/);
+    fireEvent.change(screen.getByLabelText('确认净值'), { target: { value: '2.5' } });
+    fireEvent.click(screen.getByRole('button', { name: '录入' }));
+    await vi.waitFor(() => {
+      const post = vi.mocked(fetch).mock.calls.find((c) => String(c[0]).includes('/txns') && (c[1] as RequestInit)?.method === 'POST');
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({ direction: 'sell', shares: 500, pairBuyId: 11 });
+    });
+  });
+
+  it('买入行标识：已清仓买入无卖出按钮；被显式配对的买入标注「已配对卖出」，卖出行回指配对日期', async () => {
+    const round = makeRound({
+      openBuys: [],
+      txns: [
+        { id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null },
+        { id: 12, direction: 'sell', date: '2026-09-10', amount: 1250, nav: 2.5, shares: 500, fee: 0, pairBuyId: 11 },
+      ],
+    });
+    stubApi((url) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    expect(screen.getByText('（已配对卖出）')).toBeTruthy();
+    expect(screen.getByText(/（配对 2026-09-01）/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '卖出' })).toBeNull();
+  });
+
+  it('删除失败时展示服务端错误（如被配对买入不可删）', async () => {
+    const round = makeRound();
+    stubApi((url, init) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      if (url.includes('/txns/') && init?.method === 'DELETE') {
+        return new Response(JSON.stringify({ ok: false, error: '该买入已被卖出显式配对，请先删除对应卖出记录' }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    await screen.findByText('该买入已被卖出显式配对，请先删除对应卖出记录');
   });
 });

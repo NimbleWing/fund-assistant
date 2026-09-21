@@ -8,6 +8,7 @@ import {
   deleteRoundTxn,
   fetchFundNavs,
   fetchRounds,
+  type OpenBuyLot,
   type RoundData,
   type RoundMetrics,
 } from '@/lib/api';
@@ -54,22 +55,29 @@ function MetricsGrid({ m }: { m: RoundMetrics }) {
 interface TxnFormProps {
   /** 该基金的 净值日期→单位净值 映射（用于按时间自动匹配确认净值） */
   navMap: Map<string, number>;
-  onSubmit: (txn: { direction: 'buy' | 'sell'; date: string; amount: number; nav: number; shares: number; fee: number }) => Promise<string | null>;
+  /** 持有中的买入批次（卖出时供显式配对选择） */
+  openBuys: OpenBuyLot[];
+  /** 行内「卖出」按钮发起的配对请求（seq 递增触发，同一批次可重复发起） */
+  pairRequest: { buyId: number; seq: number } | null;
+  onSubmit: (txn: { direction: 'buy' | 'sell'; date: string; amount: number; nav: number; shares: number; fee: number; pairBuyId: number | null }) => Promise<string | null>;
 }
 
-function TxnForm({ navMap, onSubmit }: TxnFormProps) {
+function TxnForm({ navMap, openBuys, pairRequest, onSubmit }: TxnFormProps) {
   const [direction, setDirection] = useState<'buy' | 'sell'>('buy');
   const [date, setDate] = useState(today());
   const [amount, setAmount] = useState('');
   const [nav, setNav] = useState('');
   const [shares, setShares] = useState('');
   const [fee, setFee] = useState('');
+  const [pairBuyId, setPairBuyId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const lastSuggestedShares = useRef('');
   // 净值/回款被手改过则不再用建议值覆盖
   const navTouched = useRef(false);
   const amountTouched = useRef(false);
+
+  const pairedLot = pairBuyId != null ? openBuys.find((b) => b.id === pairBuyId) : undefined;
 
   // 份额建议（买入）：本金 ÷ 净值（两位）；用户没手改过时自动跟随
   const suggestShares = (a: string, n: string): string => {
@@ -120,11 +128,32 @@ function TxnForm({ navMap, onSubmit }: TxnFormProps) {
 
   const navMiss = /^\d{4}-\d{2}-\d{2}$/.test(date) && !navMap.has(date);
 
+  // 行内「卖出」按钮发起配对：切卖出方向、锁定份额为该批次剩余份额，回款按建议值跟随
+  useEffect(() => {
+    if (!pairRequest) return;
+    const lot = openBuys.find((b) => b.id === pairRequest.buyId);
+    // 批次不在当前轮持有中（如切换基金/轮次后的残留请求）时忽略
+    if (!lot) return;
+    setDirection('sell');
+    setPairBuyId(pairRequest.buyId);
+    setAmount('');
+    setFee('');
+    amountTouched.current = false;
+    const s = String(lot.shares);
+    setShares(s);
+    setAmount(suggestProceeds(s, nav, fee));
+    // 仅在新的配对请求时触发（seq 变化），其余表单状态不联动
+  }, [pairRequest?.seq]);
+
+  // 取消配对：回到自动 FIFO，份额恢复可手输
+  const clearPair = () => setPairBuyId(null);
+
   const submit = async () => {
-    const txn = { direction, date, amount: Number(amount), nav: Number(nav), shares: Number(shares), fee: direction === 'sell' ? Number(fee) || 0 : 0 };
+    const txn = { direction, date, amount: Number(amount), nav: Number(nav), shares: Number(shares), fee: direction === 'sell' ? Number(fee) || 0 : 0, pairBuyId: direction === 'sell' ? pairBuyId : null };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return setError('日期需为 YYYY-MM-DD');
     if (!(txn.amount > 0) || !(txn.nav > 0) || !(txn.shares > 0)) return setError('金额 / 净值 / 份额需为正数');
     if (txn.fee < 0) return setError('手续费不能为负');
+    if (direction === 'sell' && pairBuyId != null && pairedLot == null) return setError('配对买入已不存在，请重新选择');
     setSubmitting(true);
     setError('');
     try {
@@ -135,6 +164,7 @@ function TxnForm({ navMap, onSubmit }: TxnFormProps) {
         setAmount('');
         setShares('');
         setFee('');
+        setPairBuyId(null);
         lastSuggestedShares.current = '';
         amountTouched.current = false;
       }
@@ -154,6 +184,7 @@ function TxnForm({ navMap, onSubmit }: TxnFormProps) {
             setAmount('');
             setShares('');
             setFee('');
+            setPairBuyId(null);
             lastSuggestedShares.current = '';
             amountTouched.current = false;
           }}
@@ -170,9 +201,26 @@ function TxnForm({ navMap, onSubmit }: TxnFormProps) {
         确认净值
         <input type="number" min="0" step="0.0001" className="w-28" value={nav} onChange={(e) => onNavChange(e.target.value)} />
       </label>
+      {direction === 'sell' && pairBuyId != null && (
+        <span className="flex items-center gap-1 self-end pb-1 text-xs text-dim">
+          配对 {pairedLot ? `${pairedLot.date} 买入 · ${fmt(pairedLot.shares)} 份 · 本金 ${fmt(pairedLot.principal)}` : `买入 #${pairBuyId}`}
+          <button type="button" className="act" title="取消配对，回到自动 FIFO" onClick={clearPair}>
+            ✕
+          </button>
+        </span>
+      )}
       <label className="flex flex-col gap-1 text-xs text-dim">
         确认份额
-        <input type="number" min="0" step="0.01" className="w-28" value={shares} onChange={(e) => { setShares(e.target.value); onSharesNavFee(e.target.value, nav, fee); }} />
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          className="w-28"
+          value={shares}
+          disabled={direction === 'sell' && pairBuyId != null}
+          title={direction === 'sell' && pairBuyId != null ? '整笔配对：份额锁定为配对买入的剩余份额' : undefined}
+          onChange={(e) => { setShares(e.target.value); onSharesNavFee(e.target.value, nav, fee); }}
+        />
       </label>
       {direction === 'sell' && (
         <label className="flex flex-col gap-1 text-xs text-dim">
@@ -213,6 +261,8 @@ export function Rounds() {
   const [rounds, setRounds] = useState<RoundData[] | null>(null);
   const [navMap, setNavMap] = useState<Map<string, number>>(new Map());
   const [error, setError] = useState('');
+  // 行内「卖出」按钮 → 表单的配对请求（seq 递增保证同一批次可重复触发）
+  const [pairRequest, setPairRequest] = useState<{ buyId: number; seq: number } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!fundCode) {
@@ -263,7 +313,12 @@ export function Rounds() {
 
   const removeTxn = async (roundId: number, txnId: number) => {
     const d = await deleteRoundTxn(roundId, txnId);
-    if (d?.ok && d.round) upsertRound(d.round);
+    if (d?.ok && d.round) {
+      upsertRound(d.round);
+      setError('');
+    } else {
+      setError(d?.error ?? '删除失败');
+    }
   };
 
   const close = async (roundId: number) => {
@@ -313,7 +368,7 @@ export function Rounds() {
             </button>
           </div>
           <MetricsGrid m={active.metrics} />
-          <TxnForm key={active.id} navMap={navMap} onSubmit={(txn) => submitTxn(active.id, txn)} />
+          <TxnForm key={active.id} navMap={navMap} openBuys={active.openBuys ?? []} pairRequest={pairRequest} onSubmit={(txn) => submitTxn(active.id, txn)} />
           {active.txns.length > 0 && (
             // 交易表填满剩余视口高度，超出部分表内滚动
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -330,21 +385,46 @@ export function Rounds() {
                 </tr>
               </thead>
               <tbody>
-                {active.txns.map((t) => (
+                {(() => {
+                  // 买入批次剩余（openBuys）与显式配对标记（被 pairBuyId 指向的买入）
+                  const openMap = new Map((active.openBuys ?? []).map((b) => [b.id, b]));
+                  const pairedBuyIds = new Set(active.txns.filter((t) => t.pairBuyId != null).map((t) => t.pairBuyId));
+                  return active.txns.map((t) => {
+                    const lot = t.direction === 'buy' ? openMap.get(t.id) : undefined;
+                    return (
                   <tr key={t.id}>
-                    <td className={t.direction === 'buy' ? 'text-up' : 'text-down'}>{t.direction === 'buy' ? '买入' : '卖出'}</td>
+                    <td className={t.direction === 'buy' ? 'text-up' : 'text-down'}>
+                      {t.direction === 'buy' ? '买入' : '卖出'}
+                      {t.direction === 'sell' && t.pairBuyId != null && (
+                        <span className="text-xs text-dim">（配对 {active.txns.find((b) => b.id === t.pairBuyId)?.date ?? `#${t.pairBuyId}`}）</span>
+                      )}
+                    </td>
                     <td>{t.date}</td>
                     <td>{fmt(t.amount)}</td>
                     <td>{fmt4(t.nav)}</td>
-                    <td>{fmt(t.shares)}</td>
-                    <td>{t.direction === 'sell' && t.fee > 0 ? fmt(t.fee) : '—'}</td>
                     <td>
+                      {fmt(t.shares)}
+                      {t.direction === 'buy' && (
+                        <span className="text-xs text-dim">
+                          {lot ? (lot.shares < t.shares - 0.005 ? `（剩 ${fmt(lot.shares)}）` : '') : pairedBuyIds.has(t.id) ? '（已配对卖出）' : '（已清仓）'}
+                        </span>
+                      )}
+                    </td>
+                    <td>{t.direction === 'sell' && t.fee > 0 ? fmt(t.fee) : '—'}</td>
+                    <td className="whitespace-nowrap">
+                      {t.direction === 'buy' && lot && (
+                        <button type="button" className="act act-primary" onClick={() => setPairRequest({ buyId: t.id, seq: Date.now() })}>
+                          卖出
+                        </button>
+                      )}{' '}
                       <button type="button" className="act" onClick={() => void removeTxn(active.id, t.id)}>
                         删除
                       </button>
                     </td>
                   </tr>
-                ))}
+                    );
+                  });
+                })()}
               </tbody>
               </table>
             </div>

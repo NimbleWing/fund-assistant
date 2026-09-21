@@ -22,10 +22,11 @@ const CLOSED: RoundData = {
     holdingPrincipal: 0, holdingShares: 0, dilutedCost: 0, dilutedRealizedPnl: 500,
     latestNav: null, marketValue: null, floatingPnl: null, dilutedHoldingPnl: null, totalPnl: 500,
   },
+  openBuys: [],
   txns: [
-    { id: 1, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0 },
-    { id: 2, direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500, fee: 0 },
-    { id: 3, direction: 'sell', date: '2026-09-21', amount: 3500, nav: 3.5, shares: 1000, fee: 5 },
+    { id: 1, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null },
+    { id: 2, direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500, fee: 0, pairBuyId: null },
+    { id: 3, direction: 'sell', date: '2026-09-21', amount: 3500, nav: 3.5, shares: 1000, fee: 5, pairBuyId: null },
   ],
 };
 
