@@ -88,6 +88,23 @@ describe('calcRound', () => {
 });
 
 describe('rounds store', () => {
+  it('listTxns 按交易时间排序（同日按录入顺序），与录入先后无关', () => {
+    const s = openRoundsStore(':memory:');
+    try {
+      const round = s.createRound('110022');
+      s.addTxn(round.id, { direction: 'buy', date: '2026-09-10', amount: 100, nav: 1, shares: 100 });
+      s.addTxn(round.id, { direction: 'buy', date: '2026-09-01', amount: 100, nav: 1, shares: 100 });
+      s.addTxn(round.id, { direction: 'sell', date: '2026-09-10', amount: 110, nav: 1.1, shares: 100 });
+      expect(s.listTxns(round.id).map((t) => `${t.date}:${t.direction}`)).toEqual([
+        '2026-09-01:buy',
+        '2026-09-10:buy',
+        '2026-09-10:sell',
+      ]);
+    } finally {
+      s.close();
+    }
+  });
+
   it('round_txn 迁移：旧表缺 fee / pair_buy_id 列时打开自动补列，存量行默认 0 / null', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rounds-migrate-'));
     const file = path.join(dir, 't.db');

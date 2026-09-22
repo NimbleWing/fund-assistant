@@ -114,7 +114,8 @@ export function openRoundsStore(dbPath: string = DB_FILE): RoundsStore {
   const stmtActive = db.prepare(`SELECT ${COLS} FROM round WHERE fund_code = ? AND status = 'active' LIMIT 1`);
   const stmtMaxSeq = db.prepare('SELECT COALESCE(MAX(seq), 0) AS maxSeq FROM round WHERE fund_code = ?');
   const stmtCreate = db.prepare(`INSERT INTO round(fund_code, seq, status, created_at) VALUES (?, ?, 'active', ?)`);
-  const stmtTxns = db.prepare(`SELECT ${TXN_COLS} FROM round_txn WHERE round_id = ? ORDER BY id`);
+  // 按交易时间排序（同日按录入顺序），展示与 FIFO 回放均以此为准
+  const stmtTxns = db.prepare(`SELECT ${TXN_COLS} FROM round_txn WHERE round_id = ? ORDER BY date, id`);
   const stmtAddTxn = db.prepare('INSERT INTO round_txn(round_id, direction, date, amount, nav, shares, fee, pair_buy_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const stmtGetTxn = db.prepare(`SELECT ${TXN_COLS} FROM round_txn WHERE id = ?`);
   const stmtDelTxn = db.prepare('DELETE FROM round_txn WHERE id = ? AND round_id = ?');

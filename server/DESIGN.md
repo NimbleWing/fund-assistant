@@ -120,7 +120,7 @@
 轮（`domain_models/CONTEXT.md`）的录入与跟踪。两表（fund.db 内）：
 
 - `round`：`id` / `fund_code`（关联关注基金）/ `seq`（该基金内从 1 递增）/ `status`（`active` 进行中 / `closed` 已清仓）/ 清仓快照字段（`buy_count` `sell_count` `invested` `proceeds` `realized_pnl` `sold_principal` `total_pnl`，closed 时写入）/ `created_at` `closed_at`。
-- `round_txn`：`id` / `round_id` / `direction`（buy/sell）/ `date`（=确认日）/ `amount`（本金/回款）/ `nav`（确认净值）/ `shares`（确认份额）/ `fee`（手续费，仅卖出有意义，默认 0）/ `pair_buy_id`（显式配对的买入交易 id，仅卖出，null = 自动 FIFO）/ `created_at`。存量库打开时自动 ALTER TABLE 补缺失列。
+- `round_txn`：`id` / `round_id` / `direction`（buy/sell）/ `date`（=确认日）/ `amount`（本金/回款）/ `nav`（确认净值）/ `shares`（确认份额）/ `fee`（手续费，仅卖出有意义，默认 0）/ `pair_buy_id`（显式配对的买入交易 id，仅卖出，null = 自动 FIFO）/ `created_at`。存量库打开时自动 ALTER TABLE 补缺失列。`listTxns` 按 `date, id` 排序返回（交易时间优先、同日按录入顺序），**展示与 FIFO/摊薄回放均以此为序**——补录旧日期交易后指标按真实时间序重算。
 
 规则：
 
