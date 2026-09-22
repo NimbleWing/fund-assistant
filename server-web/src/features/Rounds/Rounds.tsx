@@ -1,6 +1,6 @@
-// 当前轮次页：进行中轮卡片（指标动态计算）+ 买卖录入 + 本轮交易表（可过滤方向/未匹配买入，可删误录）。
+// 当前轮次页：进行中轮卡片（15 项指标分「盈亏总览 / 当前持仓 / 资金流水」三张归类卡片动态计算）+ 买卖录入 + 本轮交易表（可过滤方向/未匹配买入，可删误录）。
 // 闭轮为手动按钮，持有份额未归 0 时禁用；已清仓轮次在「已清仓轮次」页查看。
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   addRoundTxn,
   closeRound,
@@ -70,24 +70,51 @@ const TXN_FILTERS: { key: TxnFilter; label: string }[] = [
   { key: 'openBuy', label: '未匹配买入' },
 ];
 
+// 指标归类卡片：raised 底 + 细边框嵌套在外层轮卡片内，卡内指标两列网格
+function MetricGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-line bg-raised/40 p-3">
+      <p className="text-xs font-medium text-dim">{title}</p>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>
+    </section>
+  );
+}
+
 function MetricsGrid({ m }: { m: RoundMetrics }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4 lg:grid-cols-6">
-      <Stat label="买入次数" tip={METRIC_FORMULAS.buyCount} value={String(m.buyCount)} />
-      <Stat label="卖出次数" tip={METRIC_FORMULAS.sellCount} value={String(m.sellCount)} />
-      <Stat label="总投入" tip={METRIC_FORMULAS.invested} value={fmt(m.invested)} />
-      <Stat label="累计回款" tip={METRIC_FORMULAS.proceeds} value={fmt(m.proceeds)} />
-      <Stat label="已实现盈亏" tip={METRIC_FORMULAS.realizedPnl} value={pnlValue(m.realizedPnl).text} pnl={m.realizedPnl} />
-      <Stat label="已卖本金" tip={METRIC_FORMULAS.soldPrincipal} value={fmt(m.soldPrincipal)} />
-      <Stat label="持有本金" tip={METRIC_FORMULAS.holdingPrincipal} value={fmt(m.holdingPrincipal)} />
-      <Stat label="持有份额" tip={METRIC_FORMULAS.holdingShares} value={fmt(m.holdingShares)} />
-      <Stat label="满30天份额" tip={METRIC_FORMULAS.sharesHeld30d} value={fmt(m.sharesHeld30d)} />
-      <Stat label="持仓市值" tip={METRIC_FORMULAS.marketValue} value={money(m.marketValue)} />
-      <Stat label="浮动盈亏" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnl != null ? pnlValue(m.floatingPnl).text : '—'} pnl={m.floatingPnl} />
-      <Stat label="浮动盈亏率" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnlPct != null ? pctValue(m.floatingPnlPct).text : '—'} pnl={m.floatingPnlPct} />
-      <Stat label="持仓收益·摊薄（对账）" tip={METRIC_FORMULAS.dilutedHoldingPnl} value={m.dilutedHoldingPnl != null ? pnlValue(m.dilutedHoldingPnl).text : '—'} pnl={m.dilutedHoldingPnl} />
-      <Stat label="轮总盈亏" tip={METRIC_FORMULAS.totalPnl} value={m.totalPnl != null ? pnlValue(m.totalPnl).text : '—'} pnl={m.totalPnl} />
-      <Stat label="轮总盈亏率" tip={METRIC_FORMULAS.totalPnl} value={m.totalPnlPct != null ? pctValue(m.totalPnlPct).text : '—'} pnl={m.totalPnlPct} />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <MetricGroup title="盈亏总览">
+        {/* 轮总盈亏为本轮核心结论，大字号独占一行突出 */}
+        <div className="col-span-2">
+          <p className="text-xs text-dim">
+            <MetricTip label="轮总盈亏" tip={METRIC_FORMULAS.totalPnl} />
+          </p>
+          <p className={`mt-0.5 text-xl font-bold tabular-nums ${m.totalPnl != null ? pnlValue(m.totalPnl).cls : ''}`}>
+            {m.totalPnl != null ? pnlValue(m.totalPnl).text : '—'}
+          </p>
+        </div>
+        <Stat label="轮总盈亏率" tip={METRIC_FORMULAS.totalPnl} value={m.totalPnlPct != null ? pctValue(m.totalPnlPct).text : '—'} pnl={m.totalPnlPct} />
+        <Stat label="已实现盈亏" tip={METRIC_FORMULAS.realizedPnl} value={pnlValue(m.realizedPnl).text} pnl={m.realizedPnl} />
+        <Stat label="浮动盈亏" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnl != null ? pnlValue(m.floatingPnl).text : '—'} pnl={m.floatingPnl} />
+        <Stat label="浮动盈亏率" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnlPct != null ? pctValue(m.floatingPnlPct).text : '—'} pnl={m.floatingPnlPct} />
+        <div className="col-span-2">
+          <Stat label="持仓收益·摊薄（对账）" tip={METRIC_FORMULAS.dilutedHoldingPnl} value={m.dilutedHoldingPnl != null ? pnlValue(m.dilutedHoldingPnl).text : '—'} pnl={m.dilutedHoldingPnl} />
+        </div>
+      </MetricGroup>
+      <MetricGroup title="当前持仓">
+        <Stat label="持仓市值" tip={METRIC_FORMULAS.marketValue} value={money(m.marketValue)} />
+        <Stat label="持有本金" tip={METRIC_FORMULAS.holdingPrincipal} value={fmt(m.holdingPrincipal)} />
+        <Stat label="持有份额" tip={METRIC_FORMULAS.holdingShares} value={fmt(m.holdingShares)} />
+        <Stat label="满30天份额" tip={METRIC_FORMULAS.sharesHeld30d} value={fmt(m.sharesHeld30d)} />
+        <Stat label="最新净值" value={m.latestNav != null ? fmt4(m.latestNav) : '—'} />
+      </MetricGroup>
+      <MetricGroup title="资金流水">
+        <Stat label="总投入" tip={METRIC_FORMULAS.invested} value={fmt(m.invested)} />
+        <Stat label="累计回款" tip={METRIC_FORMULAS.proceeds} value={fmt(m.proceeds)} />
+        <Stat label="已卖本金" tip={METRIC_FORMULAS.soldPrincipal} value={fmt(m.soldPrincipal)} />
+        <Stat label="买入次数" tip={METRIC_FORMULAS.buyCount} value={String(m.buyCount)} />
+        <Stat label="卖出次数" tip={METRIC_FORMULAS.sellCount} value={String(m.sellCount)} />
+      </MetricGroup>
     </div>
   );
 }
@@ -395,9 +422,6 @@ export function Rounds() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <p className="font-medium">第 {active.seq} 轮</p>
             <span className="badge badge-ok">进行中</span>
-            <span className="text-xs text-dim">
-              最新净值 {active.metrics.latestNav != null ? fmt4(active.metrics.latestNav) : '—（该基金暂无净值记录）'}
-            </span>
             <button
               type="button"
               className="act ml-auto"
