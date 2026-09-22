@@ -49,7 +49,7 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。面
   - **在线**点击卡片右侧「重启」按钮（仅在线显示，点击不冒泡到卡片）→ `restartServer()`：`{cmd:'restart'}` → host 杀掉 17521 监听进程并重新拉起 → 每秒心跳轮询确认上线（≤10s），期间隐藏持仓估值区块。
 - 启动前置：**先运行 `server/install-native.bat` 安装 native messaging host**（一次性，见 `server/DESIGN.md` §6）；未安装时点击离线卡片会 toast 提示失败原因（含手动 `server/start.bat` 兜底）。
 - 面板享有 host_permissions 豁免，可直连本地服务；提示统一走 `#toast`（底部浮层）。
-- 头部版本号旁「重载」按钮 → `chrome.runtime.reload()`：重载整个扩展（SW 重启、面板重建），开发期 `npm run build` 后一键加载最新产物，替代 chrome://extensions 手动重载。重载前面板向 `storage.session` 插旗（`RELOAD_FLAG_KEY`），SW 启动后消费该旗标并 `chrome.sidePanel.open()` 自动重开侧边栏（Chrome 127+ 该 API 无需用户手势）；从 chrome://extensions 手动重载无旗标，不自动打开。
+- 头部版本号旁「重载」按钮 → `location.reload()`：面板页面从 `dist/` 实时加载，`npm run build` 后一键生效且侧边栏保持打开，替代 chrome://extensions 手动重载。**注意边界**：`background.js`（SW）变更不由此覆盖，仍需手动重载扩展；`sidePanel.open()` 仅限用户手势调用（官方文档明确），故整扩展重载后无法自动重开侧边栏。
 
 ## 6. 版本号
 

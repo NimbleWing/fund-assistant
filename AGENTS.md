@@ -63,3 +63,17 @@ npm run dev      # Vite 开发服（热更，/api 代理到 127.0.0.1:17521）
 - **扩展版本号/代码变更后必须 `npm run build` 并经 chrome-devtools MCP 重载扩展**：`reload_extension`（扩展 id 用 `list_extensions` 查询），确保浏览器内运行的是最新代码。
 - **每次功能/结构性变更必须同步变更对应组件文档**（见文档地图；实施细节变化先改文档再动代码）。
 - **每次实施完成并通过 check 校验后，必须询问用户是否提交**，未经确认不 commit。
+
+## 网络访问排障（本机代理）
+
+本机开了系统代理（Clash，**`http://127.0.0.1:7897`**，端口以注册表 `HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyServer` 为准；`ProxyOverride` 内的 localhost/内网段不走代理），但 shell 未注入 `HTTP(S)_PROXY` 环境变量——**网络访问失败先怀疑是未走代理**，按下面流程处理：
+
+1. **对比验证**（8s 超时）：
+   ```bash
+   curl -s -o NUL -w "%{http_code}" --max-time 8 <url>                          # 直连
+   curl -s -o NUL -w "%{http_code}" --max-time 8 -x http://127.0.0.1:7897 <url>  # 走代理
+   ```
+   直连 `000`/超时、代理 `200` → 确认代理问题。
+2. **取内容**：webfetch 工具不支持指定代理，改用 bash 的 `curl -x http://127.0.0.1:7897 <url>`；大响应用 `Select-String`/Grep 定位关键段落。
+3. **镜像优先**：有国内镜像的官方文档直接走镜像可避开代理（如 `developer.chrome.com` → `developer.chrome.google.cn`）。
+4. **代码内 HTTP 请求**（如 server 抓取天天基金/新浪行情）：目标均为国内可直连站点，**默认直连、不依赖代理**，避免本地服务可用性绑定代理在线状态；确需代理的目标再单独评估。
