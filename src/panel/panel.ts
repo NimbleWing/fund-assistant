@@ -1,14 +1,18 @@
-// 侧边栏面板入口：版本展示 + 本地服务状态卡片。
+// 侧边栏面板入口：版本展示 + 本地服务状态卡片 + 持仓估值区块。
 // 交互语义（对齐 video-assistant）：在线点击 = 新标签页打开管理页；离线点击 = native messaging 拉起本地服务。
 import { SERVER_ORIGIN } from '../core/config.ts';
 import { checkHealth, type HealthResult } from '../core/health.ts';
 import { startServer } from '../core/server-ctl.ts';
+import { fetchHoldingEstimates, type HoldingEstimate } from '../core/holdings.ts';
 
 const versionEl = document.getElementById('version') as HTMLElement;
 const dotEl = document.getElementById('dot') as HTMLElement;
 const textEl = document.getElementById('status-text') as HTMLElement;
 const cardEl = document.getElementById('status-card') as HTMLElement;
 const toastEl = document.getElementById('toast') as HTMLElement;
+const holdingsEl = document.getElementById('holdings') as HTMLElement;
+const holdingsListEl = document.getElementById('holdings-list') as HTMLElement;
+const holdingsTimeEl = document.getElementById('holdings-time') as HTMLElement;
 
 versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
 
@@ -34,10 +38,62 @@ function render(r: HealthResult | 'starting'): void {
   textEl.textContent = r.online ? `服务在线 · ${r.latencyMs ?? '?'}ms` : '服务离线 · 点击启动';
 }
 
+function signed(v: number): string {
+  return (v > 0 ? '+' : '') + v.toFixed(2);
+}
+
+function trendCls(v: number): string {
+  return v > 0 ? 'up' : v < 0 ? 'down' : '';
+}
+
+function renderHoldingRow(item: HoldingEstimate): HTMLLIElement {
+  const li = document.createElement('li');
+
+  const name = document.createElement('span');
+  name.className = 'h-name';
+  name.textContent = item.name;
+  name.title = `${item.name}（${item.code}）`;
+
+  const pct = document.createElement('span');
+  const amt = document.createElement('span');
+  pct.className = 'h-pct';
+  amt.className = 'h-amt';
+  if (item.estChangePct === null || item.estChangeAmount === null) {
+    pct.textContent = '--';
+    amt.textContent = '--';
+    pct.classList.add('na');
+    amt.classList.add('na');
+  } else {
+    pct.textContent = `${signed(item.estChangePct)}%`;
+    amt.textContent = signed(item.estChangeAmount);
+    pct.classList.add(trendCls(item.estChangePct));
+    amt.classList.add(trendCls(item.estChangeAmount));
+  }
+
+  li.append(name, pct, amt);
+  return li;
+}
+
+// 持仓估值：服务不可达（null）或无持仓时隐藏区块；估值时间取各行最新一条。
+async function refreshHoldings(): Promise<void> {
+  const list = await fetchHoldingEstimates();
+  if (!list || list.length === 0) {
+    holdingsEl.hidden = true;
+    return;
+  }
+  holdingsListEl.replaceChildren(...list.map(renderHoldingRow));
+  const times = list.map((i) => i.gztime).filter((t): t is string => t !== null);
+  holdingsTimeEl.textContent = times.length > 0 ? `估值时间 ${times.sort().at(-1)}` : '';
+  holdingsEl.hidden = false;
+}
+
 async function refresh(): Promise<void> {
   if (starting) return;
   textEl.textContent = '检测中…';
-  render(await checkHealth());
+  const r = await checkHealth();
+  render(r);
+  if (r.online) void refreshHoldings();
+  else holdingsEl.hidden = true;
 }
 
 void refresh();

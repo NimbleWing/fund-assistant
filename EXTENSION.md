@@ -4,7 +4,7 @@
 
 ## 1. 定位
 
-MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。当前为骨架（版本展示 + 本地服务心跳），基金数据解析、展示与提醒功能以此为基础挂载。
+MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。面板当前含：版本展示、本地服务状态卡片（§5）、持仓估值区块（§7）。基金数据解析、展示与提醒功能以此为基础挂载。
 
 ## 2. 目录结构
 
@@ -17,7 +17,8 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。当
 │   │   ├── config.ts        # 常量收敛（本地服务地址、native host 名）
 │   │   ├── logger.ts        # 统一前缀日志
 │   │   ├── health.ts        # 服务心跳探测（注入 fetch，可测）
-│   │   └── server-ctl.ts    # native messaging 启动编排（注入 send/check/wait，可测）
+│   │   ├── server-ctl.ts    # native messaging 启动编排（注入 send/check/wait，可测）
+│   │   └── holdings.ts      # 持仓估值聚合：关注基金 → 进行中轮持有份额 → 盘中估值（注入 fetch，可测）
 │   └── panel/               # 侧边栏面板（html / css / ts）
 ├── tests/                   # vitest（镜像 src 结构）
 └── tools/
@@ -51,3 +52,12 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。当
 ## 6. 版本号
 
 功能/修复变更必须升版本号：`manifest.json` 与根 `package.json` 保持一致（补丁 0.1.0→0.1.1，新功能升次版本 0.2.0），面板版本号读自 manifest。
+
+## 7. 面板持仓估值区块
+
+面板状态卡片下方展示**当前轮次持有基金的盘中估值**（`#holdings`，`core/holdings.ts` 聚合 + `panel.ts` 渲染）：
+
+- 数据链路：`GET /api/watchlist` → 逐只 `GET /api/rounds?fund=` 找进行中轮取 `metrics.holdingShares`（无进行中轮或份额 ≤0 跳过）→ `GET /api/funds/:code/estimate` 取盘中估值。
+- 展示字段：基金名、**预估涨跌幅**（估值接口 `gszzl`，相对昨收 %）、**预估涨跌额** = 持有份额 ×（预估净值 − 最新净值）（盘中语义：最新净值即昨收）。涨跌额两位小数，红涨绿跌（`.up`/`.down`，配色对齐管理页）。
+- 降级：服务不可达（聚合返回 `null`）或无持仓 → 区块整体隐藏；单只估值不可用（QDII/远端失败）→ 该行显示 `--`（`.na`）。
+- 刷新：随状态卡片 30s 心跳轮询一并刷新；`#holdings-time` 显示各行最新估值时间（`gztime`）。

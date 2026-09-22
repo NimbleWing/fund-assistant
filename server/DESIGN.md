@@ -32,7 +32,7 @@
     ├── features/
     │   ├── system/       # 系统级接口：GET /api/health
     │   ├── records/      # 临时：买卖记录分析（parse.ts 解析配对 + /api/records）
-    │   ├── funds/        # 基金实时搜索（/api/funds/search，代理天天基金 suggest，见 §8）
+    │   ├── funds/        # 基金实时搜索 + 盘中估值（/api/funds/search、/api/funds/:code/estimate，见 §8）
     │   └── watchlist/    # 关注基金列表（SQLite 持久化 + /api/watchlist，见 §9）
     └── test/setup.ts     # 全局测试 setup（后续 SQLite 在此切内存库）
 ```
@@ -89,6 +89,8 @@
 - `search.ts`：请求远端（超时 5s）+ 响应归一化为 `{code, name, type}`（type 取 `FundBaseInfo.FTYPE`，缺失为 null），上限 20 条；fetch 可注入便于单测 stub。
 - 空 q 直接返回空列表（不打远端）；远端失败/超时/响应结构异常返回 `ok:false`（不抛错，对齐 records 风格）。
 - 无本地缓存——每次请求实时打远端（用户明确不要全量清单方案）。
+
+**盘中估值**：`GET /api/funds/:code/estimate`（`estimate.ts`）——服务端代理新浪行情接口（`hq.sinajs.cn/list=fu_{code}`，需 `Referer: finance.sina.com.cn` 头；响应 GBK 编码但仅取数字字段不受影响）。字段位：估值时间/预估净值/最新净值（盘中即昨收）/预估涨跌幅%/日期，归一化为 `{gsz 预估净值, gszzl 预估涨跌幅%（相对昨收）, dwjz 最新净值, gztime 估值时间 YYYY-MM-DD HH:mm}`。5s 超时；code 须在关注列表（否则 404）；QDII 无估值/远端失败/超时返回 `ok:false`（不抛错）。fetch 可注入便于单测 stub。供扩展面板持仓估值区块使用（`EXTENSION.md` §7）。
 
 ## 9. 关注基金列表（watchlist/）
 

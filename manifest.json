@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "基金助手 Fund Assistant",
-  "version": "0.2.0",
-  "description": "基金数据助手 —— 侧边栏面板展示本地服务状态（骨架），后续接入基金净值、持仓与提醒。",
+  "version": "0.3.0",
+  "description": "基金数据助手 —— 侧边栏面板展示本地服务状态与当前轮次持仓估值（预估涨跌幅/涨跌额）。",
   "author": "BExhei",
   "icons": {
     "16": "icons/icon-16.png",

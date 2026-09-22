@@ -21,7 +21,7 @@ function isAllowedOrigin(origin: string): boolean {
   return ALLOWED_ORIGINS.includes(origin) || origin.startsWith('chrome-extension://');
 }
 
-const ROUTES: Route[] = [...systemRoutes, ...recordsRoutes, ...fundsRoutes, ...watchlistRoutes(), ...navRoutes(), ...roundsRoutes()];
+const ROUTES: Route[] = [...systemRoutes, ...recordsRoutes, ...fundsRoutes(), ...watchlistRoutes(), ...navRoutes(), ...roundsRoutes()];
 
 /** 路径匹配：段精确相等；':x' 段为参数占位（如 /api/funds/:code）。未匹配返回 null。 */
 function matchPath(pattern: string, pathname: string): Record<string, string> | null {
