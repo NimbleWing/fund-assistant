@@ -10,7 +10,7 @@ import { HttpError, json, type Route } from '../../lib/http.ts';
 import { openWatchStore } from '../watchlist/store.ts';
 import { openNavStore } from '../nav/store.ts';
 import { openRoundsStore } from './store.ts';
-import { calcRound, openBuyLots, type RoundTxnInput } from './calc.ts';
+import { buyLotPnl, calcRound, openBuyLots, type RoundTxnInput } from './calc.ts';
 import { roundsRoutes } from './routes.ts';
 
 describe('calcRound', () => {
@@ -89,6 +89,48 @@ describe('calcRound', () => {
     const m = calcRound(txns, 3);
     expect(m).toMatchObject({ soldPrincipal: 2000, realizedPnl: 250, holdingShares: 250, holdingPrincipal: 1000 });
     expect(openBuyLots(txns)).toEqual([{ id: 2, shares: 250, principal: 1000 }]);
+  });
+});
+
+describe('buyLotPnl（买入批次盈亏归因）', () => {
+  it('未卖出批次：浮动 = 剩余份额 × 最新净值 − 本金；无净值时浮动为 null', () => {
+    const txns: RoundTxnInput[] = [{ id: 1, direction: 'buy', amount: 1000, nav: 2, shares: 500 }];
+    expect(buyLotPnl(txns, 3)).toEqual([{ id: 1, holdingShares: 500, realizedPnl: 0, floatingPnl: 500 }]);
+    expect(buyLotPnl(txns, null)[0]?.floatingPnl).toBeNull();
+  });
+
+  it('显式配对整笔卖出：已实现 = 回款 − 本金，浮动为 null（无剩余）', () => {
+    const txns: RoundTxnInput[] = [
+      { id: 1, direction: 'buy', amount: 1000, nav: 2, shares: 500 },
+      { id: 2, direction: 'sell', amount: 1250, nav: 2.5, shares: 500, pairBuyId: 1 },
+    ];
+    expect(buyLotPnl(txns, 3)).toEqual([{ id: 1, holdingShares: 0, realizedPnl: 250, floatingPnl: null }]);
+  });
+
+  it('FIFO 跨批次卖出：回款按各批次消耗本金比例分摊归因', () => {
+    // 买A 1000@2=500份、买B 2000@4=500份；卖 750 份回款 2250：消耗 A 本金 1000 + B 本金 1000
+    // A 分摊回款 2250×1000/2000=1125 → 已实现 +125；B 分摊 1125 → 已实现 +125，B 剩余 250 份浮动 = 250×3−1000 = −250
+    const txns: RoundTxnInput[] = [
+      { id: 1, direction: 'buy', amount: 1000, nav: 2, shares: 500 },
+      { id: 2, direction: 'buy', amount: 2000, nav: 4, shares: 500 },
+      { id: 3, direction: 'sell', amount: 2250, nav: 3, shares: 750 },
+    ];
+    expect(buyLotPnl(txns, 3)).toEqual([
+      { id: 1, holdingShares: 0, realizedPnl: 125, floatingPnl: null },
+      { id: 2, holdingShares: 250, realizedPnl: 125, floatingPnl: -250 },
+    ]);
+  });
+
+  it('批次已实现合计 = 轮已实现盈亏', () => {
+    const txns: RoundTxnInput[] = [
+      { id: 1, direction: 'buy', amount: 1000, nav: 2, shares: 500 },
+      { id: 2, direction: 'buy', amount: 2000, nav: 4, shares: 500 },
+      { id: 3, direction: 'sell', amount: 2600, nav: 5.2, shares: 500, pairBuyId: 2 },
+      { id: 4, direction: 'sell', amount: 900, nav: 3.6, shares: 250 },
+    ];
+    const lots = buyLotPnl(txns, 3);
+    const sum = lots.reduce((s, l) => s + l.realizedPnl, 0);
+    expect(Math.abs(sum - calcRound(txns, 3).realizedPnl)).toBeLessThan(0.01);
   });
 });
 
@@ -201,8 +243,11 @@ describe('rounds routes', () => {
     await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500 });
     const afterSell = (await (
       await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-15', amount: 2250, nav: 3, shares: 750, fee: 5 })
-    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number; floatingPnlPct: number | null; totalPnlPct: number | null }; txns: { fee: number }[] } };
+    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number; floatingPnlPct: number | null; totalPnlPct: number | null }; buyPnls: { realizedPnl: number; floatingPnl: number | null }[]; txns: { fee: number }[] } };
     expect(afterSell.round.metrics).toMatchObject({ realizedPnl: 250, holdingShares: 250, latestNav: 3.722, totalPnl: 180.5, floatingPnlPct: -6.95, totalPnlPct: 6.02 });
+    // 批次盈亏归因：卖出 750 份 FIFO 跨两批消耗（各耗本金 1000），回款各分摊 1125 → 各已实现 +125；第二批剩余 250 份浮动 −69.5
+    expect(afterSell.round.buyPnls.map((b) => b.realizedPnl)).toEqual([125, 125]);
+    expect(afterSell.round.buyPnls[1]?.floatingPnl).toBe(-69.5);
     expect(afterSell.round.txns[2]?.fee).toBe(5); // 手续费已落库（回款为实际到账，盈亏不受影响）
 
     // 持有份额未归 0，闭轮 → 400

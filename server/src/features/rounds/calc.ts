@@ -65,10 +65,14 @@ interface Lot {
   id?: number;
   shares: number;
   principal: number;
+  /** 已卖出部分归因到本批次的已实现盈亏（跨批次卖出按消耗本金比例分摊回款） */
+  realized: number;
 }
 
 interface Replay {
   lots: Lot[];
+  /** 全部买入批次（含已耗尽），保持买入顺序，供批次盈亏归因 */
+  allLots: Lot[];
   buyCount: number;
   sellCount: number;
   invested: number;
@@ -80,7 +84,7 @@ interface Replay {
   dilutedRealizedPnl: number;
 }
 
-/** 从指定批次消耗 take 份额，按份额比例扣本金；耗尽则移除批次。返回消耗的本金。 */
+/** 从指定批次消耗 take 份额，按份额比例扣本金；耗尽则移出持有列表（批次对象仍留在 allLots）。返回消耗的本金。 */
 function consume(lots: Lot[], idx: number, take: number): number {
   const lot = lots[idx] as Lot;
   const used = lot.principal * (take / lot.shares);
@@ -95,6 +99,7 @@ function replay(txns: RoundTxnInput[]): Replay {
   const lots: Lot[] = [];
   const r: Replay = {
     lots,
+    allLots: [],
     buyCount: 0,
     sellCount: 0,
     invested: 0,
@@ -110,7 +115,9 @@ function replay(txns: RoundTxnInput[]): Replay {
       r.buyCount += 1;
       r.invested += t.amount;
       r.holdingShares += t.shares;
-      lots.push({ id: t.id, shares: t.shares, principal: t.amount });
+      const lot: Lot = { id: t.id, shares: t.shares, principal: t.amount, realized: 0 };
+      lots.push(lot);
+      r.allLots.push(lot);
       r.dilutedCost += t.amount;
       continue;
     }
@@ -120,18 +127,30 @@ function replay(txns: RoundTxnInput[]): Replay {
     const beforeShares = r.holdingShares;
     let remaining = t.shares;
     let consumed = 0;
+    // 本笔卖出消耗的各批次与本金（供回款按比例分摊归因）
+    const allocs: { lot: Lot; used: number }[] = [];
     if (t.pairBuyId != null) {
       const idx = lots.findIndex((l) => l.id === t.pairBuyId);
       if (idx >= 0) {
-        const take = Math.min(remaining, (lots[idx] as Lot).shares);
-        consumed += consume(lots, idx, take);
+        const lot = lots[idx] as Lot;
+        const take = Math.min(remaining, lot.shares);
+        const used = consume(lots, idx, take);
+        allocs.push({ lot, used });
+        consumed += used;
         remaining -= take;
       }
     }
     while (remaining > EPS && lots.length > 0) {
-      const take = Math.min(remaining, (lots[0] as Lot).shares);
-      consumed += consume(lots, 0, take);
+      const lot = lots[0] as Lot;
+      const take = Math.min(remaining, lot.shares);
+      const used = consume(lots, 0, take);
+      allocs.push({ lot, used });
+      consumed += used;
       remaining -= take;
+    }
+    // 回款按各批次消耗本金比例分摊，归因批次已实现盈亏（合计恰为 本笔回款 − 消耗本金）
+    if (consumed > EPS) {
+      for (const a of allocs) a.lot.realized += t.amount * (a.used / consumed) - a.used;
     }
     r.realizedPnl += t.amount - consumed;
     r.soldPrincipal += consumed;
@@ -151,6 +170,28 @@ export function openBuyLots(txns: RoundTxnInput[]): OpenBuyLot[] {
   return replay(txns)
     .lots.filter((l) => l.shares > EPS)
     .map((l) => ({ id: l.id, shares: round2(l.shares), principal: round2(l.principal) }));
+}
+
+/** 单个买入批次的盈亏归因。 */
+export interface BuyLotPnl {
+  /** 买入交易 id（输入未带 id 时为 undefined） */
+  id?: number;
+  /** 剩余持有份额（0 = 该批次已清仓） */
+  holdingShares: number;
+  /** 已实现部分：已卖出份额按配对卖出归因（跨批次卖出的回款按消耗本金比例分摊） */
+  realizedPnl: number;
+  /** 浮动部分：剩余份额 × 最新净值 − 剩余本金；无剩余或无最新净值时为 null */
+  floatingPnl: number | null;
+}
+
+/** 各买入批次的盈亏归因（买入顺序），供当前轮次页交易表逐行展示。 */
+export function buyLotPnl(txns: RoundTxnInput[], latestNav: number | null): BuyLotPnl[] {
+  return replay(txns).allLots.map((l) => ({
+    id: l.id,
+    holdingShares: round2(l.shares),
+    realizedPnl: round2(l.realized),
+    floatingPnl: latestNav != null && l.shares > EPS ? round2(l.shares * latestNav - l.principal) : null,
+  }));
 }
 
 export function calcRound(txns: RoundTxnInput[], latestNav: number | null): RoundMetrics {

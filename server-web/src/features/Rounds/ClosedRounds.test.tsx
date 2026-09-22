@@ -24,6 +24,7 @@ const CLOSED: RoundData = {
     floatingPnlPct: null, totalPnlPct: 16.67,
   },
   openBuys: [],
+  buyPnls: [],
   txns: [
     { id: 1, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null },
     { id: 2, direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500, fee: 0, pairBuyId: null },

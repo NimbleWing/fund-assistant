@@ -271,6 +271,18 @@ export interface OpenBuyLot {
   principal: number;
 }
 
+/** 单个买入批次的盈亏归因（当前轮次页交易表逐行展示）。 */
+export interface BuyLotPnl {
+  /** 买入交易 id */
+  id: number;
+  /** 剩余持有份额（0 = 该批次已清仓） */
+  holdingShares: number;
+  /** 已实现部分（已卖出份额按配对卖出归因；跨批次卖出按消耗本金比例分摊回款） */
+  realizedPnl: number;
+  /** 浮动部分（剩余份额 × 最新净值 − 剩余本金）；无剩余或无最新净值时为 null */
+  floatingPnl: number | null;
+}
+
 export interface RoundData {
   id: number;
   fundCode: string;
@@ -281,6 +293,8 @@ export interface RoundData {
   metrics: RoundMetrics;
   /** 持有中的买入批次（进行中轮动态计算；已清仓轮恒为空） */
   openBuys: OpenBuyLot[];
+  /** 各买入批次的盈亏归因（买入顺序；已清仓轮浮动部分恒为 null） */
+  buyPnls: BuyLotPnl[];
   txns: RoundTxn[];
 }
 

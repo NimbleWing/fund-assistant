@@ -8,6 +8,7 @@ import {
   deleteRoundTxn,
   fetchFundNavs,
   fetchRounds,
+  type BuyLotPnl,
   type OpenBuyLot,
   type RoundData,
   type RoundMetrics,
@@ -36,6 +37,29 @@ function Stat({ label, tip, value, pnl }: { label: string; tip?: string; value: 
 }
 
 const money = (v: number | null) => (v == null ? '—' : fmt(v));
+
+/** 买入行盈亏单元格：未卖出=浮动（最新净值），已清仓=已实现（卖出净值），部分卖出=合计并标注构成。 */
+function BuyPnlCell({ p }: { p: BuyLotPnl | undefined }) {
+  if (!p) return <span className="text-dim">—</span>;
+  const hasRealized = Math.abs(p.realizedPnl) > 0.004;
+  const holding = p.holdingShares > 0.004;
+  // 部分卖出且有净值：合计（已实现 + 浮动），小字标注构成
+  if (hasRealized && holding && p.floatingPnl != null) {
+    const total = round2(p.realizedPnl + p.floatingPnl);
+    return (
+      <>
+        <span className={pnlValue(total).cls}>{pnlValue(total).text}</span>
+        <span className="text-xs text-dim">
+          （已卖 {pnlValue(p.realizedPnl).text} · 持有 {pnlValue(p.floatingPnl).text}）
+        </span>
+      </>
+    );
+  }
+  // 已清仓：已实现；持有中：浮动（无最新净值为 —）
+  const v = holding ? p.floatingPnl : p.realizedPnl;
+  if (v == null) return <span className="text-dim">—</span>;
+  return <span className={pnlValue(v).cls}>{pnlValue(v).text}</span>;
+}
 
 // 交易表过滤：openBuy = 仍有剩余份额的买入批次（含部分卖出后的剩余）
 type TxnFilter = 'all' | 'buy' | 'sell' | 'openBuy';
@@ -413,6 +437,7 @@ export function Rounds() {
                   <th>确认净值</th>
                   <th>确认份额</th>
                   <th>手续费</th>
+                  <th><MetricTip label="盈亏" tip={METRIC_FORMULAS.buyLotPnl} /></th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -420,6 +445,7 @@ export function Rounds() {
                 {(() => {
                   // 买入批次剩余（openBuys）与显式配对标记（被 pairBuyId 指向的买入）
                   const openMap = new Map((active.openBuys ?? []).map((b) => [b.id, b]));
+                  const pnlMap = new Map((active.buyPnls ?? []).map((b) => [b.id, b]));
                   const pairedBuyIds = new Set(active.txns.filter((t) => t.pairBuyId != null).map((t) => t.pairBuyId));
                   const visible = active.txns.filter((t) =>
                     txnFilter === 'all'
@@ -433,7 +459,7 @@ export function Rounds() {
                   if (visible.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={7} className="text-dim">
+                        <td colSpan={8} className="text-dim">
                           当前过滤条件下暂无交易记录
                         </td>
                       </tr>
@@ -461,6 +487,7 @@ export function Rounds() {
                       )}
                     </td>
                     <td>{t.direction === 'sell' && t.fee > 0 ? fmt(t.fee) : '—'}</td>
+                    <td>{t.direction === 'buy' ? <BuyPnlCell p={pnlMap.get(t.id)} /> : <span className="text-dim">—</span>}</td>
                     <td className="whitespace-nowrap">
                       {t.direction === 'buy' && lot && (
                         <button type="button" className="act act-primary" onClick={() => setPairRequest({ buyId: t.id, seq: Date.now() })}>

@@ -25,6 +25,7 @@ function makeRound(over: Partial<RoundData> = {}): RoundData {
       floatingPnlPct: 86.1, totalPnlPct: 86.1,
     },
     openBuys: [{ id: 11, date: '2026-09-01', nav: 2, shares: 500, principal: 1000 }],
+    buyPnls: [{ id: 11, holdingShares: 500, realizedPnl: 0, floatingPnl: 861 }],
     txns: [{ id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null }],
     ...over,
   };
@@ -75,10 +76,36 @@ describe('Rounds', () => {
     await screen.findByText('第 1 轮');
     expect(screen.getByText('进行中')).toBeTruthy();
     expect(screen.getByText('持仓收益·摊薄（对账）')).toBeTruthy();
-    expect(screen.getAllByText('+861.00').length).toBe(3); // 浮动/摊薄/轮总盈亏
+    expect(screen.getAllByText('+861.00').length).toBe(4); // 浮动/摊薄/轮总盈亏 + 买入行盈亏（未卖出按最新净值）
     expect(screen.getAllByText('+86.10%').length).toBe(2); // 浮动盈亏率 + 轮总盈亏率独立指标
     expect(screen.getByText(/3\.7220/)).toBeTruthy(); // 最新净值
     expect(screen.getByRole('button', { name: '清仓闭轮' })).toHaveProperty('disabled', true);
+  });
+
+  it('买入行盈亏列：已清仓显示已实现（卖出净值口径），部分卖出显示合计并标注构成，卖出行显示 —', async () => {
+    const round = makeRound({
+      openBuys: [{ id: 12, date: '2026-09-02', nav: 4, shares: 250, principal: 1000 }],
+      buyPnls: [
+        { id: 11, holdingShares: 0, realizedPnl: 250, floatingPnl: null },
+        { id: 12, holdingShares: 250, realizedPnl: 125, floatingPnl: -250 },
+      ],
+      txns: [
+        { id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null },
+        { id: 12, direction: 'buy', date: '2026-09-02', amount: 2000, nav: 4, shares: 500, fee: 0, pairBuyId: null },
+        { id: 13, direction: 'sell', date: '2026-09-10', amount: 2250, nav: 3, shares: 750, fee: 0, pairBuyId: null },
+      ],
+    });
+    stubApi((url) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    expect(screen.getByText('+250.00')).toBeTruthy(); // 批次 11 已清仓：已实现
+    expect(screen.getByText('-125.00')).toBeTruthy(); // 批次 12 合计：125 + (−250)
+    expect(screen.getByText(/（已卖 \+125\.00 · 持有 -250\.00）/)).toBeTruthy();
   });
 
   it('指标 ⓘ 点击弹出计算公式气泡，再点关闭', async () => {
