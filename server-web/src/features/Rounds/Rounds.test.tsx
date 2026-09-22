@@ -231,6 +231,55 @@ describe('Rounds', () => {
     expect(screen.queryByRole('button', { name: '卖出' })).toBeNull();
   });
 
+  it('交易表过滤：买入 / 卖出 / 未匹配买入（有剩余份额的批次，含部分卖出）', async () => {
+    // 买 11（500 份，被卖 13 消耗 300 份，剩 200）、买 12（300 份已耗尽）、卖 13（FIFO 消耗）
+    const round = makeRound({
+      openBuys: [{ id: 11, date: '2026-09-01', nav: 2, shares: 200, principal: 400 }],
+      txns: [
+        { id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null },
+        { id: 12, direction: 'buy', date: '2026-09-02', amount: 600, nav: 2, shares: 300, fee: 0, pairBuyId: null },
+        { id: 13, direction: 'sell', date: '2026-09-10', amount: 750, nav: 2.5, shares: 300, fee: 0, pairBuyId: null },
+      ],
+    });
+    stubApi((url) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [round] }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    // 默认全部：3 行
+    expect(screen.getAllByRole('button', { name: '删除' }).length).toBe(3);
+    // 只显示卖出
+    fireEvent.click(screen.getByRole('button', { name: '只看卖出' }));
+    expect(screen.getAllByRole('button', { name: '删除' }).length).toBe(1);
+    expect(screen.getByText('2026-09-10')).toBeTruthy();
+    // 只显示买入
+    fireEvent.click(screen.getByRole('button', { name: '只看买入' }));
+    expect(screen.getAllByRole('button', { name: '删除' }).length).toBe(2);
+    expect(screen.queryByText('2026-09-10')).toBeNull();
+    // 只显示未匹配买入：仅剩有剩余份额的买入 11
+    fireEvent.click(screen.getByRole('button', { name: '未匹配买入' }));
+    expect(screen.getAllByRole('button', { name: '删除' }).length).toBe(1);
+    expect(screen.getByText(/（剩 200/)).toBeTruthy();
+    expect(screen.queryByText('2026-09-02')).toBeNull();
+  });
+
+  it('过滤空态：无匹配记录时提示', async () => {
+    // 只有买入、无卖出 → 切到「卖出」过滤显示空态
+    stubApi((url) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [makeRound()] }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    fireEvent.click(screen.getByRole('button', { name: '只看卖出' }));
+    await screen.findByText('当前过滤条件下暂无交易记录');
+  });
+
   it('删除失败时展示服务端错误（如被配对买入不可删）', async () => {
     const round = makeRound();
     stubApi((url, init) => {

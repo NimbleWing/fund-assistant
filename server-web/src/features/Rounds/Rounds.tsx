@@ -1,4 +1,4 @@
-// 当前轮次页：进行中轮卡片（指标动态计算）+ 买卖录入 + 本轮交易表（可删误录）。
+// 当前轮次页：进行中轮卡片（指标动态计算）+ 买卖录入 + 本轮交易表（可过滤方向/未匹配买入，可删误录）。
 // 闭轮为手动按钮，持有份额未归 0 时禁用；已清仓轮次在「已清仓轮次」页查看。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -32,6 +32,15 @@ function Stat({ label, value, pnl }: { label: string; value: string; pnl?: numbe
 }
 
 const money = (v: number | null) => (v == null ? '—' : fmt(v));
+
+// 交易表过滤：openBuy = 仍有剩余份额的买入批次（含部分卖出后的剩余）
+type TxnFilter = 'all' | 'buy' | 'sell' | 'openBuy';
+const TXN_FILTERS: { key: TxnFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'buy', label: '只看买入' },
+  { key: 'sell', label: '只看卖出' },
+  { key: 'openBuy', label: '未匹配买入' },
+];
 
 function MetricsGrid({ m }: { m: RoundMetrics }) {
   return (
@@ -263,6 +272,7 @@ export function Rounds() {
   const [error, setError] = useState('');
   // 行内「卖出」按钮 → 表单的配对请求（seq 递增保证同一批次可重复触发）
   const [pairRequest, setPairRequest] = useState<{ buyId: number; seq: number } | null>(null);
+  const [txnFilter, setTxnFilter] = useState<TxnFilter>('all');
 
   const refresh = useCallback(async () => {
     if (!fundCode) {
@@ -370,6 +380,22 @@ export function Rounds() {
           <MetricsGrid m={active.metrics} />
           <TxnForm key={active.id} navMap={navMap} openBuys={active.openBuys ?? []} pairRequest={pairRequest} onSubmit={(txn) => submitTxn(active.id, txn)} />
           {active.txns.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-dim">交易记录</span>
+              {TXN_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  className={txnFilter === f.key ? 'act act-primary' : 'act'}
+                  aria-pressed={txnFilter === f.key}
+                  onClick={() => setTxnFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {active.txns.length > 0 && (
             // 交易表填满剩余视口高度，超出部分表内滚动
             <div className="min-h-0 flex-1 overflow-y-auto">
               <table className="tabular-nums">
@@ -389,7 +415,25 @@ export function Rounds() {
                   // 买入批次剩余（openBuys）与显式配对标记（被 pairBuyId 指向的买入）
                   const openMap = new Map((active.openBuys ?? []).map((b) => [b.id, b]));
                   const pairedBuyIds = new Set(active.txns.filter((t) => t.pairBuyId != null).map((t) => t.pairBuyId));
-                  return active.txns.map((t) => {
+                  const visible = active.txns.filter((t) =>
+                    txnFilter === 'all'
+                      ? true
+                      : txnFilter === 'buy'
+                        ? t.direction === 'buy'
+                        : txnFilter === 'sell'
+                          ? t.direction === 'sell'
+                          : t.direction === 'buy' && openMap.has(t.id),
+                  );
+                  if (visible.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="text-dim">
+                          当前过滤条件下暂无交易记录
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return visible.map((t) => {
                     const lot = t.direction === 'buy' ? openMap.get(t.id) : undefined;
                     return (
                   <tr key={t.id}>
