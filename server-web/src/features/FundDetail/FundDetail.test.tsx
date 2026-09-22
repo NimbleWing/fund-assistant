@@ -14,8 +14,12 @@ const NAVS = [
   { id: 1, date: '2026-09-18', unitNav: 1.4112, createdAt: '2026-09-22T00:00:00Z' },
 ];
 
-function stubApi(opts: { navs?: typeof NAVS | null; inserted?: boolean } = {}) {
-  const { navs = NAVS, inserted = true } = opts;
+const ESTS = [
+  { id: 1, date: '2026-09-21', estimatedNav: 1.415, estimatedPct: 0.23, estTime: '2026-09-21 15:00', createdAt: '2026-09-21T16:00:00Z' },
+];
+
+function stubApi(opts: { navs?: typeof NAVS | null; ests?: typeof ESTS; inserted?: boolean } = {}) {
+  const { navs = NAVS, ests = ESTS, inserted = true } = opts;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -25,7 +29,7 @@ function stubApi(opts: { navs?: typeof NAVS | null; inserted?: boolean } = {}) {
       }
       if (url.includes('/navs')) {
         if (navs == null) return new Response(JSON.stringify({ ok: false, error: 'db 异常' }), { status: 200 });
-        return new Response(JSON.stringify({ ok: true, fund: FUND, rows: navs }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, fund: FUND, rows: navs, estRows: ests }), { status: 200 });
       }
       return new Response(JSON.stringify({ ok: false }), { status: 404 });
     }),
@@ -80,7 +84,7 @@ describe('FundDetail', () => {
   });
 
   it('空历史引导补录；加载失败提示；返回回调', async () => {
-    stubApi({ navs: [] });
+    stubApi({ navs: [], ests: [] });
     const onBack = vi.fn();
     render(<FundDetail fund={FUND} onBack={onBack} />);
     await screen.findByText(/暂无净值记录/);
@@ -88,14 +92,32 @@ describe('FundDetail', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
+  it('预估净值列：有实际净值时展示偏差；仅预估无实际的日期也成行', async () => {
+    stubApi({
+      ests: [
+        { id: 2, date: '2026-09-22', estimatedNav: 1.42, estimatedPct: 0.58, estTime: '2026-09-22 15:00', createdAt: '' },
+        { id: 1, date: '2026-09-21', estimatedNav: 1.415, estimatedPct: 0.23, estTime: '2026-09-21 15:00', createdAt: '' },
+      ],
+    });
+    render(<FundDetail fund={FUND} onBack={() => {}} />);
+    await screen.findByText('2026-09-22'); // 仅预估的日期合并入行
+    expect(screen.getByText('预估净值')).toBeTruthy();
+    expect(screen.getByText('1.4150')).toBeTruthy();
+    // 2026-09-21：实际 1.4118，预估 1.4150 → 偏差 (1.415-1.4118)/1.4118 ≈ +0.23%
+    expect(screen.getByText(/偏差 \+0\.23%/)).toBeTruthy();
+    // 2026-09-18 无预估 → 占位
+    const row18 = screen.getByText('2026-09-18').closest('tr');
+    expect(row18?.querySelectorAll('td')[2]?.textContent).toBe('—');
+  });
+
   it('分页：每页 50 条，翻页切换；分页栏固定底部且支持页码跳转', async () => {
-    const many = Array.from({ length: 120 }, (_, i) => ({
-      id: i + 1,
-      date: `2026-09-${String((i % 28) + 1).padStart(2, '0')}`,
-      unitNav: 1 + i / 1000,
-      createdAt: '',
-    }));
-    stubApi({ navs: many });
+    // 合并视图按日期去重，分页数据需唯一日期（120 个连续日）
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    const many = Array.from({ length: 120 }, (_, i) => {
+      const d = new Date(2026, 0, 1 + i);
+      return { id: i + 1, date: `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`, unitNav: 1 + i / 1000, createdAt: '' };
+    });
+    stubApi({ navs: many, ests: [] });
     render(<FundDetail fund={FUND} onBack={() => {}} />);
     await screen.findByText('已录 120 条');
     expect(screen.getByText('第 1 / 3 页')).toBeTruthy();

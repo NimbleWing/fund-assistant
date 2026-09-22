@@ -1,4 +1,4 @@
-// 基金净值历史存储：fund.db 内 fund_nav 表（与 watchlist 同库，watchlist_id 关联）。
+// 基金净值历史存储：fund.db 内 fund_nav（实际净值）+ fund_est_nav（收盘后固化的盘中预估净值）两表（与 watchlist 同库，watchlist_id 关联）。
 // 去重靠 UNIQUE(watchlist_id, date) + INSERT OR IGNORE——自动同步与手动补录同一规则：已存在不覆盖。
 import { DatabaseSync } from 'node:sqlite';
 import { DB_FILE } from '../watchlist/store.ts';
@@ -12,12 +12,35 @@ export interface NavRow {
   createdAt: string;
 }
 
+export interface EstNavRow {
+  id: number;
+  /** 估值日期 YYYY-MM-DD（取估值源自带日期，节假日下午抓到的是上一交易日） */
+  date: string;
+  /** 固化预估净值 */
+  estimatedNav: number;
+  /** 固化预估涨跌幅（%，相对昨收） */
+  estimatedPct: number;
+  /** 估值时间 YYYY-MM-DD HH:mm */
+  estTime: string;
+  createdAt: string;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fund_nav(
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   watchlist_id INTEGER NOT NULL,   -- 逻辑关联 watchlist.id（不启用 FK 约束：prepare 时 SQLite 会校验被引用表存在，跨连接顺序敏感）
   unit_nav     REAL NOT NULL,
   date         TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  UNIQUE(watchlist_id, date)
+);
+CREATE TABLE IF NOT EXISTS fund_est_nav(
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  watchlist_id INTEGER NOT NULL,
+  date         TEXT NOT NULL,
+  est_nav      REAL NOT NULL,
+  est_pct      REAL NOT NULL,
+  est_time     TEXT NOT NULL,
   created_at   TEXT NOT NULL,
   UNIQUE(watchlist_id, date)
 )`;
@@ -31,6 +54,12 @@ export interface NavStore {
   hasDate(watchlistId: number, date: string): boolean;
   /** 该基金最新一条净值；无记录为 null。 */
   latestByFund(watchlistId: number): NavRow | null;
+  /** 该基金全部固化预估净值，date 倒序。 */
+  listEstByFund(watchlistId: number): EstNavRow[];
+  /** 固化一条预估净值；该日期已存在时不覆盖（固化语义），返回 false。 */
+  insertEstIgnore(watchlistId: number, date: string, estimatedNav: number, estimatedPct: number, estTime: string): boolean;
+  /** 该基金某日预估净值是否已固化。 */
+  hasEstDate(watchlistId: number, date: string): boolean;
   close(): void;
 }
 
@@ -43,6 +72,9 @@ export function openNavStore(dbPath: string = DB_FILE): NavStore {
   const stmtInsert = db.prepare('INSERT OR IGNORE INTO fund_nav(watchlist_id, unit_nav, date, created_at) VALUES (?, ?, ?, ?)');
   const stmtHas = db.prepare('SELECT 1 FROM fund_nav WHERE watchlist_id = ? AND date = ? LIMIT 1');
   const stmtLatest = db.prepare('SELECT id, date, unit_nav AS unitNav, created_at AS createdAt FROM fund_nav WHERE watchlist_id = ? ORDER BY date DESC LIMIT 1');
+  const stmtEstList = db.prepare('SELECT id, date, est_nav AS estimatedNav, est_pct AS estimatedPct, est_time AS estTime, created_at AS createdAt FROM fund_est_nav WHERE watchlist_id = ? ORDER BY date DESC');
+  const stmtEstInsert = db.prepare('INSERT OR IGNORE INTO fund_est_nav(watchlist_id, date, est_nav, est_pct, est_time, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const stmtEstHas = db.prepare('SELECT 1 FROM fund_est_nav WHERE watchlist_id = ? AND date = ? LIMIT 1');
 
   return {
     listByFund: (watchlistId) => stmtList.all(watchlistId) as unknown as NavRow[],
@@ -50,6 +82,10 @@ export function openNavStore(dbPath: string = DB_FILE): NavStore {
       Number(stmtInsert.run(watchlistId, unitNav, date, new Date().toISOString()).changes) > 0,
     hasDate: (watchlistId, date) => stmtHas.get(watchlistId, date) != null,
     latestByFund: (watchlistId) => (stmtLatest.get(watchlistId) as unknown as NavRow) ?? null,
+    listEstByFund: (watchlistId) => stmtEstList.all(watchlistId) as unknown as EstNavRow[],
+    insertEstIgnore: (watchlistId, date, estimatedNav, estimatedPct, estTime) =>
+      Number(stmtEstInsert.run(watchlistId, date, estimatedNav, estimatedPct, estTime, new Date().toISOString()).changes) > 0,
+    hasEstDate: (watchlistId, date) => stmtEstHas.get(watchlistId, date) != null,
     close: () => db.close(),
   };
 }

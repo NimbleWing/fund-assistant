@@ -37,6 +37,19 @@ export function normalizeEstimate(text: string): FundEstimate | null {
 
 /** 拉取实时估值；远端失败/超时/无估值返回 null（路由层转 ok:false）。rn 防缓存参数须在 list 之前（新浪按最后一个参数名作变量名）。 */
 export async function fetchEstimate(code: string, fetchImpl: FetchLike = fetch): Promise<FundEstimate | null> {
+  const o = await fetchEstimateOutcome(code, fetchImpl);
+  return o.kind === 'ok' ? o.est : null;
+}
+
+export type EstimateOutcome =
+  | { kind: 'ok'; est: FundEstimate }
+  /** 无盘中估值（QDII 等，或响应结构异常） */
+  | { kind: 'none' }
+  /** 网络失败/超时/HTTP 非 200 */
+  | { kind: 'fail' };
+
+/** 同 fetchEstimate，但区分「无估值」与「抓取失败」（固化调度据此决定当日跳过还是稍后重试）。 */
+export async function fetchEstimateOutcome(code: string, fetchImpl: FetchLike = fetch): Promise<EstimateOutcome> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -44,10 +57,11 @@ export async function fetchEstimate(code: string, fetchImpl: FetchLike = fetch):
       signal: ctrl.signal,
       headers: { Referer: 'https://finance.sina.com.cn' },
     });
-    if (!res.ok) return null;
-    return normalizeEstimate(await res.text());
+    if (!res.ok) return { kind: 'fail' };
+    const est = normalizeEstimate(await res.text());
+    return est ? { kind: 'ok', est } : { kind: 'none' };
   } catch {
-    return null;
+    return { kind: 'fail' };
   } finally {
     clearTimeout(timer);
   }

@@ -1,7 +1,8 @@
-// 基金净值详情页（关注列表点击进入，非侧边栏页签）：净值历史表 + 手动补录表单。
+// 基金净值详情页（关注列表点击进入，非侧边栏页签）：净值历史表（含固化预估净值列）+ 手动补录表单。
 // 补录与启动同步同一去重规则：已存在日期不覆盖，服务端返回 inserted:false，页面明确提示。
+// 预估净值由服务端在交易日 16:00 后自动固化（fund_est_nav），与实际净值按日期合并展示。
 import { useCallback, useEffect, useState } from 'react';
-import { addFundNav, fetchFundNavs, type NavRow } from '@/lib/api';
+import { addFundNav, fetchFundNavs, type EstNavRow, type NavRow } from '@/lib/api';
 
 interface FundDetailProps {
   fund: { code: string; name: string; type: string | null };
@@ -10,8 +11,16 @@ interface FundDetailProps {
 
 type Feedback = { kind: 'ok' | 'warn' | 'err'; text: string } | null;
 
+/** 展示行：实际净值与固化预估净值按日期合并（并集）；仅预估无实际净值的日期也展示 */
+interface ViewRow {
+  date: string;
+  unitNav: number | null;
+  est: EstNavRow | null;
+}
+
 export function FundDetail({ fund, onBack }: FundDetailProps) {
   const [rows, setRows] = useState<NavRow[] | null>(null);
+  const [estRows, setEstRows] = useState<EstNavRow[]>([]);
   const [failed, setFailed] = useState(false);
   const [date, setDate] = useState('');
   const [navText, setNavText] = useState('');
@@ -23,6 +32,7 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
     const d = await fetchFundNavs(fund.code);
     if (d?.ok && d.rows) {
       setRows(d.rows);
+      setEstRows(d.estRows ?? []);
       setFailed(false);
     } else {
       setFailed(true);
@@ -34,11 +44,22 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
     setPage(0);
   }, [refresh]);
 
+  const viewRows: ViewRow[] = (() => {
+    const map = new Map<string, ViewRow>();
+    for (const r of rows ?? []) map.set(r.date, { date: r.date, unitNav: r.unitNav, est: null });
+    for (const e of estRows) {
+      const v = map.get(e.date);
+      if (v) v.est = e;
+      else map.set(e.date, { date: e.date, unitNav: null, est: e });
+    }
+    return [...map.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+  })();
+
   // 分页：客户端切片（全量已拉取，单基金历史量级 ~千条）
   const PAGE_SIZE = 50;
-  const pageCount = rows != null ? Math.max(1, Math.ceil(rows.length / PAGE_SIZE)) : 1;
+  const pageCount = viewRows.length > 0 ? Math.max(1, Math.ceil(viewRows.length / PAGE_SIZE)) : 1;
   const curPage = Math.min(page, pageCount - 1);
-  const pageRows = rows?.slice(curPage * PAGE_SIZE, (curPage + 1) * PAGE_SIZE) ?? [];
+  const pageRows = viewRows.slice(curPage * PAGE_SIZE, (curPage + 1) * PAGE_SIZE);
   const [jumpText, setJumpText] = useState('');
 
   const jumpTo = () => {
@@ -118,25 +139,34 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
 
       {failed && <p className="text-sm text-err">净值历史加载失败，请确认本地服务在线。</p>}
       {!failed && rows == null && <p className="text-sm text-dim">加载中…</p>}
-      {!failed && rows != null && rows.length === 0 && (
+      {!failed && rows != null && viewRows.length === 0 && (
         <p className="text-sm text-dim">暂无净值记录——服务启动时会自动同步最近约一个月净值，更早历史可在上方补录。</p>
       )}
-      {rows != null && rows.length > 0 && (
+      {rows != null && viewRows.length > 0 && (
         <div className="card overflow-x-auto">
           <table className="tabular-nums">
             <thead>
               <tr>
                 <th>净值日期</th>
                 <th>单位净值</th>
+                <th>预估净值</th>
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.date}</td>
-                  <td>{r.unitNav.toFixed(4)}</td>
-                </tr>
-              ))}
+              {pageRows.map((r) => {
+                // 预估偏差 =（预估 − 实际）/ 实际；两者都有时展示
+                const dev = r.est != null && r.unitNav != null ? ((r.est.estimatedNav - r.unitNav) / r.unitNav) * 100 : null;
+                return (
+                  <tr key={r.date}>
+                    <td>{r.date}</td>
+                    <td>{r.unitNav != null ? r.unitNav.toFixed(4) : '—'}</td>
+                    <td>
+                      {r.est != null ? r.est.estimatedNav.toFixed(4) : '—'}
+                      {dev != null && <span className="ml-1 text-xs text-dim">（偏差 {dev >= 0 ? '+' : ''}{dev.toFixed(2)}%）</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {pageCount > 1 && (

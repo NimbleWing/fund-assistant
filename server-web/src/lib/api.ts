@@ -183,10 +183,25 @@ export interface NavRow {
   createdAt: string;
 }
 
+/** 固化预估净值（fund.db fund_est_nav 表；交易日 16:00 后服务端自动固化） */
+export interface EstNavRow {
+  id: number;
+  /** 估值日期 YYYY-MM-DD */
+  date: string;
+  /** 固化预估净值 */
+  estimatedNav: number;
+  /** 固化预估涨跌幅（%，相对昨收） */
+  estimatedPct: number;
+  /** 估值时间 YYYY-MM-DD HH:mm */
+  estTime: string;
+  createdAt: string;
+}
+
 export interface FundNavsData {
   ok: boolean;
   fund?: { code: string; name: string; type: string | null };
   rows?: NavRow[];
+  estRows?: EstNavRow[];
   error?: string;
 }
 

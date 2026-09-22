@@ -7,6 +7,7 @@ import { openWatchStore, type WatchStore } from '../watchlist/store.ts';
 import { openNavStore, type NavStore } from './store.ts';
 import { normalizeLsjz, normalizeNetWorthTrend } from './fetch.ts';
 import { expectedLatestNavDate, startNavSync } from './sync.ts';
+import { startEstNavSync } from './estimate-sync.ts';
 import { navRoutes } from './routes.ts';
 
 const LSJZ_BODY = {
@@ -33,6 +34,18 @@ describe('nav store', () => {
     expect(s.insertIgnore(1, '2026-09-18', 1.4112)).toBe(true);
     expect(s.listByFund(1).map((r) => `${r.date}@${r.unitNav}`)).toEqual(['2026-09-21@1.4118', '2026-09-18@1.4112']);
     expect(s.listByFund(2)).toEqual([]);
+    s.close();
+  });
+
+  it('预估净值：insertEstIgnore 固化不覆盖，listEstByFund 按 date 倒序', () => {
+    const s = openNavStore(':memory:');
+    expect(s.insertEstIgnore(1, '2026-09-21', 1.415, 0.35, '2026-09-21 15:00')).toBe(true);
+    expect(s.insertEstIgnore(1, '2026-09-21', 9.9, 9.9, '2026-09-21 15:00')).toBe(false); // 已固化不覆盖
+    expect(s.insertEstIgnore(1, '2026-09-22', 1.42, 0.5, '2026-09-22 15:00')).toBe(true);
+    expect(s.hasEstDate(1, '2026-09-21')).toBe(true);
+    expect(s.hasEstDate(1, '2026-09-23')).toBe(false);
+    expect(s.listEstByFund(1).map((r) => `${r.date}@${r.estimatedNav}/${r.estimatedPct}`)).toEqual(['2026-09-22@1.42/0.5', '2026-09-21@1.415/0.35']);
+    expect(s.listEstByFund(2)).toEqual([]);
     s.close();
   });
 });
@@ -155,8 +168,87 @@ describe('startNavSync', () => {
   });
 });
 
-describe('nav routes', () => {
-  let server: Server;
+describe('startEstNavSync', () => {
+  function openPair(): { watch: WatchStore; nav: NavStore } {
+    const watch = openWatchStore(':memory:');
+    return { watch, nav: openNavStore(':memory:') };
+  }
+
+  // 2026-09-22 为周二；新浪 fu_ 串字段位见 estimate.ts
+  const EST_TEXT = 'var hq_str_fu_001003="华夏债券C,15:00:00,1.4150,1.4100,0,0,0.35,2026-09-22";';
+  const estFetch = (text: string, ok = true) => vi.fn(async () => ({ ok, text: async () => text, json: async () => ({}) }));
+
+  it('固化窗口外（工作日 16:00 前 / 周末）不抓取', async () => {
+    const { watch, nav } = openPair();
+    watch.add('001003', '华夏债券C', null);
+    const fetchImpl = estFetch(EST_TEXT);
+    const ctrl = startEstNavSync({ watchStore: watch, navStore: nav, fetchImpl, now: () => new Date('2026-09-22T10:00:00'), tickMs: 15, log: () => {} });
+    await ctrl.done;
+    await new Promise((r) => setTimeout(r, 50)); // 跨过数个 tick
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(nav.hasEstDate(1, '2026-09-22')).toBe(false);
+    ctrl.stop();
+    watch.close();
+    nav.close();
+  });
+
+  it('16:00 后固化当日估值（以估值自带日期落库），已固化基金不再抓取', async () => {
+    const { watch, nav } = openPair();
+    const fund = watch.add('001003', '华夏债券C', null);
+    const fetchImpl = estFetch(EST_TEXT);
+    const ctrl = startEstNavSync({ watchStore: watch, navStore: nav, fetchImpl, now: () => new Date('2026-09-22T16:05:00'), tickMs: 15, log: () => {} });
+    await ctrl.done;
+    expect(nav.hasEstDate(fund.id, '2026-09-22')).toBe(true);
+    expect(nav.listEstByFund(fund.id)[0]).toMatchObject({ date: '2026-09-22', estimatedNav: 1.415, estimatedPct: 0.35, estTime: '2026-09-22 15:00' });
+    await new Promise((r) => setTimeout(r, 50)); // 当日已收工，后续 tick 空转
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    ctrl.stop();
+    watch.close();
+    nav.close();
+  });
+
+  it('抓取失败下一周期重试；无估值（QDII 等）当日跳过不重试', async () => {
+    const { watch, nav } = openPair();
+    const fund = watch.add('001003', '华夏债券C', null);
+    watch.add('519736', '交银新成长', null); // 模拟无估值基金（空估值串）
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      const url = String((fetchImpl.mock.calls.at(-1) as unknown[])[0]);
+      if (url.includes('519736')) return { ok: true, text: async () => 'var hq_str_fu_519736="";', json: async () => ({}) };
+      return calls === 1 ? { ok: false, text: async () => '', json: async () => ({}) } : { ok: true, text: async () => EST_TEXT, json: async () => ({}) };
+    });
+    const ctrl = startEstNavSync({ watchStore: watch, navStore: nav, fetchImpl, now: () => new Date('2026-09-22T16:05:00'), tickMs: 15, log: () => {} });
+    await ctrl.done;
+    expect(nav.hasEstDate(fund.id, '2026-09-22')).toBe(false); // 首轮 001003 失败未固化
+    await vi.waitFor(() => expect(nav.hasEstDate(fund.id, '2026-09-22')).toBe(true)); // 次轮重试成功
+    await new Promise((r) => setTimeout(r, 60)); // 两基金均处理完毕后 tick 空转
+    const total = fetchImpl.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(fetchImpl.mock.calls.length).toBe(total); // 无估值基金也未被反复抓取
+    ctrl.stop();
+    watch.close();
+    nav.close();
+  });
+
+  it('节假日：估值自带日期非当日，按估值日落库并当日收工', async () => {
+    const { watch, nav } = openPair();
+    const fund = watch.add('001003', '华夏债券C', null);
+    const staleText = 'var hq_str_fu_001003="华夏债券C,15:00:00,1.41,1.4,0,0,0.71,2026-09-21";';
+    const fetchImpl = estFetch(staleText);
+    const ctrl = startEstNavSync({ watchStore: watch, navStore: nav, fetchImpl, now: () => new Date('2026-09-22T16:05:00'), tickMs: 15, log: () => {} });
+    await ctrl.done;
+    expect(nav.hasEstDate(fund.id, '2026-09-21')).toBe(true); // 补固化上一交易日
+    expect(nav.hasEstDate(fund.id, '2026-09-22')).toBe(false);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // 当日收工
+    ctrl.stop();
+    watch.close();
+    nav.close();
+  });
+});
+
+describe('nav routes', () => {  let server: Server;
   let base = '';
   const watch = openWatchStore(':memory:');
   const nav = openNavStore(':memory:');
@@ -223,6 +315,18 @@ describe('nav routes', () => {
     };
     expect(list.fund).toMatchObject({ code: '001003', name: '华夏债券C' });
     expect(list.rows).toEqual([{ id: expect.any(Number), date: '2026-09-01', unitNav: 1.4, createdAt: expect.any(String) }]);
+  });
+
+  it('GET 历史返回 estRows（固化预估净值，date 倒序）', async () => {
+    const fund = watch.findByCode('001003');
+    nav.insertEstIgnore(fund!.id, '2026-09-01', 1.405, 0.36, '2026-09-01 15:00');
+    nav.insertEstIgnore(fund!.id, '2026-09-02', 1.412, 0.5, '2026-09-02 15:00');
+    const list = (await (await fetch(`${base}/api/funds/001003/navs`)).json()) as {
+      ok: boolean;
+      estRows: { date: string; estimatedNav: number; estimatedPct: number; estTime: string }[];
+    };
+    expect(list.estRows.map((r) => `${r.date}@${r.estimatedNav}`)).toEqual(['2026-09-02@1.412', '2026-09-01@1.405']);
+    expect(list.estRows[0]).toMatchObject({ estimatedPct: 0.5, estTime: '2026-09-02 15:00' });
   });
 
   it('校验：非法日期 / 非正数净值 / 未关注基金', async () => {

@@ -20,7 +20,7 @@ export function navRoutes(stores?: { watch?: WatchStore; nav?: NavStore }): Rout
       handler: ({ res, params }) => {
         const fund = watch().findByCode(params.code ?? '');
         if (!fund) throw new HttpError(404, '该基金不在关注列表');
-        json(res, 200, { ok: true, fund: { code: fund.code, name: fund.name, type: fund.type }, rows: nav().listByFund(fund.id) });
+        json(res, 200, { ok: true, fund: { code: fund.code, name: fund.name, type: fund.type }, rows: nav().listByFund(fund.id), estRows: nav().listEstByFund(fund.id) });
       },
     },
     {
