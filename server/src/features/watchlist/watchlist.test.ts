@@ -102,8 +102,15 @@ describe('watchlist routes', () => {
     expect(added.navSynced).toBe(2);
     expect(nav.listByFund(added.row.id).map((r) => `${r.date}@${r.unitNav}`)).toEqual(['2026-09-21@3.722', '2026-09-20@3.68']);
 
-    const list = (await (await fetch(`${base}/api/watchlist`)).json()) as { ok: boolean; rows: unknown[] };
+    const list = (await (await fetch(`${base}/api/watchlist`)).json()) as {
+      ok: boolean;
+      rows: { code: string; latestNavDate: string | null; latestUnitNav: number | null }[];
+      expectedNavDate: string;
+    };
     expect(list.rows).toHaveLength(1);
+    // GET 列表附最新净值（日期+单位净值）与期望净值日期，供面板判断今日净值是否已更新
+    expect(list.rows[0]).toMatchObject({ code: '001003', latestNavDate: '2026-09-21', latestUnitNav: 3.722 });
+    expect(list.expectedNavDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
     const del = (await (await fetch(`${base}/api/watchlist/001003`, { method: 'DELETE' })).json()) as { removed: boolean };
     expect(del.removed).toBe(true);

@@ -1,4 +1,5 @@
-// 持仓估值汇总单测：服务不可达 → null；无进行中轮/零持仓跳过；估值不可用时字段置 null；预估涨跌额计算。
+// 持仓估值汇总单测：服务不可达 → null；无进行中轮/零持仓跳过；估值不可用时字段置 null；预估涨跌额计算；
+// 净值更新状态 = 最新净值日期 ≥ 期望净值日期（期望日期缺失 → null 不展示）。
 import { describe, expect, it, vi } from 'vitest';
 import { fetchHoldingEstimates } from '../../src/core/holdings.ts';
 
@@ -15,7 +16,11 @@ function stubFetch(map: Record<string, unknown | null>): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
-const WATCH = { ok: true, rows: [{ code: '018994', name: '中欧数字经济混合发起C' }] };
+const WATCH = {
+  ok: true,
+  rows: [{ code: '018994', name: '中欧数字经济混合发起C', latestNavDate: '2026-09-21', latestUnitNav: 3.722 }],
+  expectedNavDate: '2026-09-21',
+};
 const ROUNDS_HOLDING = { ok: true, rounds: [{ status: 'active', metrics: { holdingShares: 500 } }] };
 const ESTIMATE = { ok: true, estimate: { gsz: 3.75, gszzl: 0.75, dwjz: 3.722, gztime: '2026-09-22 14:30' } };
 
@@ -24,11 +29,51 @@ describe('fetchHoldingEstimates', () => {
     expect(await fetchHoldingEstimates(stubFetch({ '/api/watchlist': null }))).toBeNull();
   });
 
-  it('正常路径：预估涨跌额 = 持有份额 ×（预估净值 − 最新净值）', async () => {
+  it('正常路径：预估涨跌额 = 持有份额 ×（预估净值 − 最新净值）；最新净值日期 = 期望日期 → 已更新', async () => {
     const rows = await fetchHoldingEstimates(stubFetch({ '/api/watchlist': WATCH, '/api/rounds': ROUNDS_HOLDING, '/estimate': ESTIMATE }));
     expect(rows).toHaveLength(1);
     // 500 × (3.75 − 3.722) = 14
-    expect(rows?.[0]).toEqual({ code: '018994', name: '中欧数字经济混合发起C', shares: 500, estChangePct: 0.75, estChangeAmount: 14, gztime: '2026-09-22 14:30' });
+    expect(rows?.[0]).toEqual({
+      code: '018994',
+      name: '中欧数字经济混合发起C',
+      shares: 500,
+      estChangePct: 0.75,
+      estChangeAmount: 14,
+      gztime: '2026-09-22 14:30',
+      latestNav: 3.722,
+      latestNavDate: '2026-09-21',
+      expectedNavDate: '2026-09-21',
+      navUpdated: true,
+    });
+  });
+
+  it('净值更新状态：最新日期早于期望日期 → 未更新；无净值记录 → 未更新；期望日期缺失 → null', async () => {
+    const stale = await fetchHoldingEstimates(
+      stubFetch({
+        '/api/watchlist': { ...WATCH, expectedNavDate: '2026-09-22' },
+        '/api/rounds': ROUNDS_HOLDING,
+        '/estimate': ESTIMATE,
+      }),
+    );
+    expect(stale?.[0]?.navUpdated).toBe(false);
+
+    const noNav = await fetchHoldingEstimates(
+      stubFetch({
+        '/api/watchlist': { ...WATCH, rows: [{ code: '018994', name: '中欧数字经济混合发起C', latestNavDate: null, latestUnitNav: null }] },
+        '/api/rounds': ROUNDS_HOLDING,
+        '/estimate': ESTIMATE,
+      }),
+    );
+    expect(noNav?.[0]).toMatchObject({ latestNav: null, latestNavDate: null, navUpdated: false });
+
+    const legacy = await fetchHoldingEstimates(
+      stubFetch({
+        '/api/watchlist': { ok: true, rows: [{ code: '018994', name: '中欧数字经济混合发起C' }] },
+        '/api/rounds': ROUNDS_HOLDING,
+        '/estimate': ESTIMATE,
+      }),
+    );
+    expect(legacy?.[0]).toMatchObject({ expectedNavDate: null, navUpdated: null });
   });
 
   it('无进行中轮或零持仓的基金跳过；无持仓时返回空列表', async () => {

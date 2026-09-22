@@ -99,7 +99,7 @@
 
 - 表 `watchlist`：`id INTEGER PRIMARY KEY AUTOINCREMENT`、`code TEXT UNIQUE NOT NULL`、`name TEXT NOT NULL`、`type TEXT`、`created_at TEXT`、`updated_at TEXT`、`active INTEGER NOT NULL DEFAULT 1`。
 - **取消关注为软删除**（`active=0` + 更新 `updated_at`）：后续将基于关注列表派生每日净值写入任务，取消关注伴随关联清理，硬删除留到该任务落地时一并处理。重复关注幂等：`ON CONFLICT(code)` 复活并刷新 name/type/updated_at。
-- 路由：`GET /api/watchlist`（仅 active=1）/ `POST /api/watchlist {code,name,type}`（关注或复活）/ `DELETE /api/watchlist/:code`（软删除）。`lib/http.ts` 的 `Route.method` 含 `'DELETE'`；`app.ts` 的 Origin 写守卫覆盖 POST/PUT/DELETE。
+- 路由：`GET /api/watchlist`（仅 active=1；每行附 `latestNavDate`/`latestUnitNav`（fund_nav 最新一条，无记录为 null），顶层附 `expectedNavDate`（期望净值日期，口径同 §10 启动同步），供扩展面板判断今日净值是否已更新）/ `POST /api/watchlist {code,name,type}`（关注或复活）/ `DELETE /api/watchlist/:code`（软删除）。`lib/http.ts` 的 `Route.method` 含 `'DELETE'`；`app.ts` 的 Origin 写守卫覆盖 POST/PUT/DELETE。
 
 ## 10. 基金净值历史（nav/）
 

@@ -67,5 +67,6 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。面
 
 - 数据链路：`GET /api/watchlist` → 逐只 `GET /api/rounds?fund=` 找进行中轮取 `metrics.holdingShares`（无进行中轮或份额 ≤0 跳过）→ `GET /api/funds/:code/estimate` 取盘中估值。
 - 展示字段：基金名、**预估涨跌幅**（估值接口 `gszzl`，相对昨收 %）、**预估涨跌额** = 持有份额 ×（预估净值 − 最新净值）（盘中语义：最新净值即昨收）。涨跌额两位小数，红涨绿跌（`.up`/`.down`，配色对齐管理页）。
+- **净值更新状态**（行内 `.h-nav`）：watchlist 响应附每只基金 `latestNavDate`/`latestUnitNav` 与顶层 `expectedNavDate`（期望净值日期：20:00 前上一交易日、周末回退周五、节假日不识别，见 server/DESIGN.md §10）。`latestNavDate ≥ expectedNavDate` → 显示「净值 1.4118 · 09-21」（暗色）；否则显示「净值待更新」（警示色，tooltip 给出最新/期望日期）；旧服务端无 `expectedNavDate` → 不展示。
 - 降级：服务不可达（聚合返回 `null`）或无持仓 → 区块整体隐藏；单只估值不可用（QDII/远端失败）→ 该行显示 `--`（`.na`）。
 - 刷新：行情行与持仓区块均随状态卡片 30s 心跳轮询一并刷新；`#holdings-time` 显示各行最新估值时间（`gztime`）。

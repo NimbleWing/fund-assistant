@@ -73,6 +73,11 @@ header h1 { margin: 0; font-size: 15px; flex: 1; }
 .h-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .h-pct, .h-amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .h-amt { font-weight: 600; }
+/* 净值更新状态：已更新=净值+日期（暗色），待更新=警示徽标 */
+.h-nav { font-size: 11px; white-space: nowrap; }
+.h-nav:empty { display: none; }
+.h-nav.ok { color: #8b8e98; }
+.h-nav.warn { color: #fbbf24; }
 .up { color: #ff8d78; }
 .down { color: #4ecf8f; }
 .na { color: #8b8e98; }

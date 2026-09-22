@@ -1,5 +1,6 @@
 // 持仓估值汇总：关注基金 → 进行中轮（持有份额 > 0）→ 盘中估值，计算预估涨跌额。
 // 预估涨跌额 = 持有份额 ×（预估净值 − 最新净值）（盘中语义：最新净值即昨收）。
+// 净值更新状态 = 该基金 fund_nav 最新日期 ≥ 服务端期望净值日期（20:00 前上一交易日、周末回退周五、节假日不识别）。
 // fetch 注入便于测试；服务不可达返回 null（面板隐藏该区域），单只估值不可用容忍（字段为 null）。
 import { SERVER_ORIGIN } from './config.ts';
 import { getJson } from './http.ts';
@@ -15,11 +16,21 @@ export interface HoldingEstimate {
   estChangeAmount: number | null;
   /** 估值时间 YYYY-MM-DD HH:mm */
   gztime: string | null;
+  /** 最新净值（fund_nav 最新一条）；无记录为 null */
+  latestNav: number | null;
+  /** 最新净值日期 YYYY-MM-DD */
+  latestNavDate: string | null;
+  /** 期望净值日期 YYYY-MM-DD（服务端未返回时为 null，面板不展示更新状态） */
+  expectedNavDate: string | null;
+  /** 今日（期望日期）净值是否已更新；expectedNavDate 缺失时为 null */
+  navUpdated: boolean | null;
 }
 
 interface WatchlistResp {
   ok: boolean;
-  rows?: { code: string; name: string }[];
+  rows?: { code: string; name: string; latestNavDate?: string | null; latestUnitNav?: number | null }[];
+  /** 期望净值日期（服务端 0.x 新增；旧版本缺失） */
+  expectedNavDate?: string;
 }
 interface RoundsResp {
   ok: boolean;
@@ -43,6 +54,7 @@ export async function fetchHoldingEstimates(
     return null;
   }
   if (!watch.ok || !watch.rows) return null;
+  const expectedNavDate = typeof watch.expectedNavDate === 'string' ? watch.expectedNavDate : null;
 
   const out: HoldingEstimate[] = [];
   for (const f of watch.rows) {
@@ -71,6 +83,11 @@ export async function fetchHoldingEstimates(
       estChangePct: est?.gszzl ?? null,
       estChangeAmount: est ? Math.round(shares * (est.gsz - est.dwjz) * 100) / 100 : null,
       gztime: est?.gztime ?? null,
+      latestNav: f.latestUnitNav ?? null,
+      latestNavDate: f.latestNavDate ?? null,
+      expectedNavDate,
+      // 无期望日期（旧服务端）→ null 不展示；有期望日期但无净值记录 → 未更新
+      navUpdated: expectedNavDate == null ? null : f.latestNavDate != null && f.latestNavDate >= expectedNavDate,
     });
   }
   return out;

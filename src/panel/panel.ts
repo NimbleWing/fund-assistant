@@ -84,7 +84,19 @@ function renderHoldingRow(item: HoldingEstimate): HTMLLIElement {
     amt.classList.add(trendCls(item.estChangeAmount));
   }
 
-  li.append(name, pct, amt);
+  // 净值更新状态：已更新显示净值与日期；未更新显示待更新徽标（tooltip 给出最新/期望日期）；未知不展示
+  const nav = document.createElement('span');
+  nav.className = 'h-nav';
+  if (item.navUpdated === true && item.latestNav != null && item.latestNavDate != null) {
+    nav.textContent = `净值 ${item.latestNav.toFixed(4)} · ${item.latestNavDate.slice(5)}`;
+    nav.classList.add('ok');
+  } else if (item.navUpdated === false) {
+    nav.textContent = '净值待更新';
+    nav.classList.add('warn');
+    nav.title = `最新净值日期 ${item.latestNavDate ?? '无记录'}，期望 ${item.expectedNavDate ?? '?'}`;
+  }
+
+  li.append(name, nav, pct, amt);
   return li;
 }
 
