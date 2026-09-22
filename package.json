@@ -1,6 +1,6 @@
 {
   "name": "fund-assistant",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "基金助手 Chrome 扩展（TypeScript + esbuild 构建，产物 dist/）— 开发工具链（构建/测试/类型检查），扩展本体无运行时依赖",

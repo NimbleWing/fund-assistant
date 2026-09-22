@@ -5,6 +5,7 @@ import { SERVER_ORIGIN } from '../core/config.ts';
 import { checkHealth, type HealthResult } from '../core/health.ts';
 import { restartServer, startServer } from '../core/server-ctl.ts';
 import { fetchHoldingEstimates, type HoldingEstimate } from '../core/holdings.ts';
+import { fetchMarketIndex } from '../core/market.ts';
 
 const versionEl = document.getElementById('version') as HTMLElement;
 const reloadBtn = document.getElementById('reload-btn') as HTMLButtonElement;
@@ -16,6 +17,10 @@ const toastEl = document.getElementById('toast') as HTMLElement;
 const holdingsEl = document.getElementById('holdings') as HTMLElement;
 const holdingsListEl = document.getElementById('holdings-list') as HTMLElement;
 const holdingsTimeEl = document.getElementById('holdings-time') as HTMLElement;
+const marketEl = document.getElementById('market') as HTMLElement;
+const marketNameEl = document.getElementById('market-name') as HTMLElement;
+const marketQuoteEl = document.getElementById('market-quote') as HTMLElement;
+const marketStatusEl = document.getElementById('market-status') as HTMLElement;
 
 versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
 
@@ -96,13 +101,33 @@ async function refreshHoldings(): Promise<void> {
   holdingsEl.hidden = false;
 }
 
+// 大盘行情：服务不可达/远端失败（null）隐藏该行；点位千分位、涨跌幅红涨绿跌。
+async function refreshMarket(): Promise<void> {
+  const m = await fetchMarketIndex();
+  if (!m) {
+    marketEl.hidden = true;
+    return;
+  }
+  marketNameEl.textContent = m.name;
+  marketQuoteEl.textContent = `${m.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${signed(m.changePct)}%`;
+  marketQuoteEl.className = trendCls(m.changePct);
+  marketStatusEl.textContent = m.label;
+  marketStatusEl.classList.toggle('open', m.open);
+  marketEl.hidden = false;
+}
+
 async function refresh(): Promise<void> {
   if (busy) return;
   textEl.textContent = '检测中…';
   const r = await checkHealth();
   render(r);
-  if (r.online) void refreshHoldings();
-  else holdingsEl.hidden = true;
+  if (r.online) {
+    void refreshMarket();
+    void refreshHoldings();
+  } else {
+    marketEl.hidden = true;
+    holdingsEl.hidden = true;
+  }
 }
 
 void refresh();
@@ -131,6 +156,7 @@ restartBtn.addEventListener('click', async (e) => {
   if (busy) return;
   busy = true;
   renderBusy('重启中…');
+  marketEl.hidden = true;
   holdingsEl.hidden = true;
   toast('正在重启本地服务…', 5000);
   const res = await restartServer();

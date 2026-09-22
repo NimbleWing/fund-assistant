@@ -18,6 +18,8 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。面
 │   │   ├── logger.ts        # 统一前缀日志
 │   │   ├── health.ts        # 服务心跳探测（注入 fetch，可测）
 │   │   ├── server-ctl.ts    # native messaging 启动编排（注入 send/check/wait，可测）
+│   │   ├── http.ts          # 共享的带超时 JSON GET 封装
+│   │   ├── market.ts        # 大盘行情：上证指数 + 开休市状态（注入 fetch，可测）
 │   │   └── holdings.ts      # 持仓估值聚合：关注基金 → 进行中轮持有份额 → 盘中估值（注入 fetch，可测）
 │   └── panel/               # 侧边栏面板（html / css / ts）
 ├── tests/                   # vitest（镜像 src 结构）
@@ -57,9 +59,13 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。面
 
 ## 7. 面板持仓估值区块
 
-面板状态卡片下方展示**当前轮次持有基金的盘中估值**（`#holdings`，`core/holdings.ts` 聚合 + `panel.ts` 渲染）：
+面板状态卡片下方依次为**大盘行情行**与**持仓估值区块**：
+
+**大盘行情行**（`#market`，`core/market.ts` 聚合）：`GET /api/market/index` → 上证指数点位/涨跌幅（红涨绿跌、千分位）+ 开休市状态（开盘中高亮、休市灰）。服务不可达或远端行情失败 → 整行隐藏。
+
+**持仓估值区块**（`#holdings`，`core/holdings.ts` 聚合 + `panel.ts` 渲染）：
 
 - 数据链路：`GET /api/watchlist` → 逐只 `GET /api/rounds?fund=` 找进行中轮取 `metrics.holdingShares`（无进行中轮或份额 ≤0 跳过）→ `GET /api/funds/:code/estimate` 取盘中估值。
 - 展示字段：基金名、**预估涨跌幅**（估值接口 `gszzl`，相对昨收 %）、**预估涨跌额** = 持有份额 ×（预估净值 − 最新净值）（盘中语义：最新净值即昨收）。涨跌额两位小数，红涨绿跌（`.up`/`.down`，配色对齐管理页）。
 - 降级：服务不可达（聚合返回 `null`）或无持仓 → 区块整体隐藏；单只估值不可用（QDII/远端失败）→ 该行显示 `--`（`.na`）。
-- 刷新：随状态卡片 30s 心跳轮询一并刷新；`#holdings-time` 显示各行最新估值时间（`gztime`）。
+- 刷新：行情行与持仓区块均随状态卡片 30s 心跳轮询一并刷新；`#holdings-time` 显示各行最新估值时间（`gztime`）。

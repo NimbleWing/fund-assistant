@@ -54,6 +54,12 @@ header h1 { margin: 0; font-size: 15px; flex: 1; }
   cursor: pointer;
 }
 #restart-btn:hover { color: #e6e7ea; border-color: #565a68; }
+/* 大盘行情行：上证点位/涨跌幅 + 开休市状态 */
+#market { display: flex; align-items: baseline; gap: 8px; margin: -4px 14px 12px; font-size: 12px; }
+#market[hidden] { display: none; }
+#market-quote { font-variant-numeric: tabular-nums; font-weight: 600; }
+#market-status { margin-left: auto; color: #8b8e98; }
+#market-status.open { color: #34d399; }
 /* 持仓估值区：红涨绿跌（对齐管理页 --color-up/down） */
 #holdings {
   margin: 0 14px 14px;

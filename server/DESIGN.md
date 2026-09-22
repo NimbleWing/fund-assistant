@@ -33,6 +33,7 @@
     │   ├── system/       # 系统级接口：GET /api/health
     │   ├── records/      # 临时：买卖记录分析（parse.ts 解析配对 + /api/records）
     │   ├── funds/        # 基金实时搜索 + 盘中估值（/api/funds/search、/api/funds/:code/estimate，见 §8）
+    │   ├── market/       # 大盘行情：上证指数 + 开休市状态（/api/market/index，见 §12）
     │   └── watchlist/    # 关注基金列表（SQLite 持久化 + /api/watchlist，见 §9）
     └── test/setup.ts     # 全局测试 setup（后续 SQLite 在此切内存库）
 ```
@@ -129,3 +130,11 @@
 - `calc.ts` 纯逻辑：逐笔配对**显式配对优先**——卖出带 `pairBuyId` 时优先消耗指定买入批次（按份额比例扣本金），不足部分退回 **FIFO 分批消耗**（允许一次卖出跨多笔买入）；未指定时纯 FIFO。摊薄口径为移动平均（同 records）。指标：买入/卖出次数、总投入、累计回款、已实现盈亏、已卖本金、持有本金、持有份额 + 需最新净值的市值/浮动盈亏/持仓收益·摊薄/总盈亏（无净值记录时为 null）。`openBuyLots()` 复用同一回放输出持有中买入批次（剩余份额/本金）。
 - `GET /api/rounds?fund=code`：进行中轮动态计算（最新净值取 fund_nav 该基金最新一条），已清仓轮读快照；返回含各轮交易明细与 `openBuys`（进行中轮的持有中买入批次，前端卖出配对选择用；已清仓轮恒为空）。
 - buyAndSellRecord.txt（records 临时页）与轮次互不迁移，各自独立。
+
+## 12. 大盘行情（market/）
+
+上证指数行情 + A股开休市状态，供扩展面板行情行使用（`EXTENSION.md` §7）。
+
+- `GET /api/market/index` → `{ok, index:{code,name,price,change,changePct}, market:{open,label}}`；行情远端失败返回 `ok:false` 但**仍带 `market` 字段**（开休市由本地时间计算，不依赖远端）。
+- `quote.ts`：代理新浪行情 s_ 简式接口（`hq.sinajs.cn/list=s_sh000001`，需 `Referer: finance.sina.com.cn` 头，`rn` 防缓存参数须在 `list` 之前）。响应 GBK 编码、名称字段不可靠（接口固定上证，name 由服务端常量补齐）；仅取数字字段（最新价/涨跌额/涨跌幅%）。5s 超时，失败归一 null。fetch 可注入单测。
+- `status.ts`：纯函数 `isMarketOpen(now)`——本地时间工作日 9:30–11:30 / 13:00–15:00 为开盘中，15:00 整点视为已收盘；节假日不识别（与 §10 净值同步约定一致）。

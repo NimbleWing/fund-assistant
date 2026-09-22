@@ -2,6 +2,7 @@
 // 预估涨跌额 = 持有份额 ×（预估净值 − 最新净值）（盘中语义：最新净值即昨收）。
 // fetch 注入便于测试；服务不可达返回 null（面板隐藏该区域），单只估值不可用容忍（字段为 null）。
 import { SERVER_ORIGIN } from './config.ts';
+import { getJson } from './http.ts';
 
 export interface HoldingEstimate {
   code: string;
@@ -27,18 +28,6 @@ interface RoundsResp {
 interface EstimateResp {
   ok: boolean;
   estimate?: { gsz: number; gszzl: number; dwjz: number; gztime: string };
-}
-
-async function getJson<T>(fetchImpl: typeof fetch, url: string, timeoutMs: number): Promise<T> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, { signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return (await res.json()) as T;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /** 汇总持仓估值：服务不可达/关注列表失败 → null；无进行中轮或零持仓的基金跳过。 */
