@@ -23,6 +23,7 @@ describe('calcRound', () => {
       buyCount: 2, sellCount: 0, invested: 3000, proceeds: 0,
       holdingShares: 1000, holdingPrincipal: 3000, realizedPnl: 0, soldPrincipal: 0,
       dilutedCost: 3000, marketValue: 5000, floatingPnl: 2000, dilutedHoldingPnl: 2000, totalPnl: 2000,
+      floatingPnlPct: 66.67, totalPnlPct: 66.67,
     });
   });
 
@@ -32,6 +33,8 @@ describe('calcRound', () => {
     expect(m.floatingPnl).toBeNull();
     expect(m.dilutedHoldingPnl).toBeNull();
     expect(m.totalPnl).toBeNull();
+    expect(m.floatingPnlPct).toBeNull();
+    expect(m.totalPnlPct).toBeNull();
   });
 
   it('FIFO 分批消耗：一次卖出跨两笔买入，按份额比例消耗本金', () => {
@@ -42,6 +45,7 @@ describe('calcRound', () => {
       invested: 3000, proceeds: 2250, soldPrincipal: 2000, realizedPnl: 250,
       holdingShares: 250, holdingPrincipal: 1000,
       marketValue: 750, floatingPnl: -250, totalPnl: 0,
+      floatingPnlPct: -25, totalPnlPct: 0,
     });
     // 摊薄：均价 3，扣减 750×3=2250，摊薄已实现 0，摊薄成本 750，持仓收益·摊薄 0
     expect(m.dilutedCost).toBe(750);
@@ -54,7 +58,8 @@ describe('calcRound', () => {
 
   it('清仓：持有归 0，总盈亏 = 已实现盈亏', () => {
     const m = calcRound([buy(1000, 2, 500), sell(1250, 2.5, 500)], 3);
-    expect(m).toMatchObject({ holdingShares: 0, holdingPrincipal: 0, realizedPnl: 250, totalPnl: 250, marketValue: 0 });
+    expect(m).toMatchObject({ holdingShares: 0, holdingPrincipal: 0, realizedPnl: 250, totalPnl: 250, marketValue: 0, totalPnlPct: 25 });
+    expect(m.floatingPnlPct).toBeNull(); // 清仓后无持有本金，浮动盈亏率不可算
   });
 
   it('显式配对：卖出指定 pairBuyId 时整笔消耗该买入（而非 FIFO 的最早批次）', () => {
@@ -196,8 +201,8 @@ describe('rounds routes', () => {
     await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500 });
     const afterSell = (await (
       await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-15', amount: 2250, nav: 3, shares: 750, fee: 5 })
-    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number }; txns: { fee: number }[] } };
-    expect(afterSell.round.metrics).toMatchObject({ realizedPnl: 250, holdingShares: 250, latestNav: 3.722, totalPnl: 180.5 });
+    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number; floatingPnlPct: number | null; totalPnlPct: number | null }; txns: { fee: number }[] } };
+    expect(afterSell.round.metrics).toMatchObject({ realizedPnl: 250, holdingShares: 250, latestNav: 3.722, totalPnl: 180.5, floatingPnlPct: -6.95, totalPnlPct: 6.02 });
     expect(afterSell.round.txns[2]?.fee).toBe(5); // 手续费已落库（回款为实际到账，盈亏不受影响）
 
     // 持有份额未归 0，闭轮 → 400
@@ -206,10 +211,10 @@ describe('rounds routes', () => {
     // 卖出剩余 250 份（消耗第二批剩余本金 1000，回款 1250 → 本笔 +250）
     await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-21', amount: 1250, nav: 5, shares: 250 });
     const closed = (await (await post(`/api/rounds/${rid}/close`)).json()) as {
-      round: { status: string; metrics: { totalPnl: number; realizedPnl: number }; closedAt: string };
+      round: { status: string; metrics: { totalPnl: number; realizedPnl: number; floatingPnlPct: number | null; totalPnlPct: number | null }; closedAt: string };
     };
     expect(closed.round.status).toBe('closed');
-    expect(closed.round.metrics).toMatchObject({ realizedPnl: 500, totalPnl: 500 });
+    expect(closed.round.metrics).toMatchObject({ realizedPnl: 500, totalPnl: 500, floatingPnlPct: null, totalPnlPct: 16.67 });
     expect(closed.round.closedAt).toBeTruthy();
 
     // 已清仓轮只读：录入/删交易/重复闭轮 → 400

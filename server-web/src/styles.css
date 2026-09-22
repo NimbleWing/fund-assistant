@@ -222,6 +222,42 @@
     color: var(--color-brand-hover);
   }
 
+  .tip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .tip-btn {
+    background: none;
+    border: none;
+    color: var(--color-dim);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 0 1px;
+  }
+  .tip-btn:hover {
+    color: var(--color-brand-hover);
+  }
+  .tip-bubble {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    width: max-content;
+    max-width: 260px;
+    white-space: normal;
+    background: var(--color-raised);
+    color: var(--color-ink);
+    border: 1px solid var(--color-line);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 400;
+    box-shadow: 0 12px 40px #00000080;
+  }
+
   dialog {
     background: var(--color-surface);
     color: var(--color-ink);

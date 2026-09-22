@@ -72,6 +72,9 @@ export function roundsRoutes(stores?: Stores): Route[] {
           floatingPnl: null,
           dilutedHoldingPnl: null,
           totalPnl: round.totalPnl ?? 0,
+          floatingPnlPct: null,
+          totalPnlPct:
+            (round.invested ?? 0) > 0 ? Math.round(((round.totalPnl ?? 0) / (round.invested ?? 1)) * 10000) / 100 : null,
         },
       };
     }

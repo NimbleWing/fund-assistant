@@ -253,6 +253,10 @@ export interface RoundMetrics {
   floatingPnl: number | null;
   dilutedHoldingPnl: number | null;
   totalPnl: number | null;
+  /** 浮动盈亏率（%）；无持仓本金或无净值时为 null */
+  floatingPnlPct: number | null;
+  /** 轮总盈亏率（%）；无投入时为 null */
+  totalPnlPct: number | null;
 }
 
 /** 持有中的买入批次（卖出录入的显式配对选项）。 */

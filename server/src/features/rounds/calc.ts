@@ -44,6 +44,10 @@ export interface RoundMetrics {
   dilutedHoldingPnl: number | null;
   /** 轮总盈亏 */
   totalPnl: number | null;
+  /** 浮动盈亏率（%）：浮动盈亏 ÷ 持有本金；无持仓本金或无净值时为 null */
+  floatingPnlPct: number | null;
+  /** 轮总盈亏率（%）：轮总盈亏 ÷ 轮总投入；无投入或无净值时为 null */
+  totalPnlPct: number | null;
 }
 
 const EPS = 1e-9;
@@ -171,5 +175,7 @@ export function calcRound(txns: RoundTxnInput[], latestNav: number | null): Roun
     floatingPnl: marketValue != null ? round2(marketValue - holdingPrincipal) : null,
     dilutedHoldingPnl: marketValue != null ? round2(marketValue - r.dilutedCost) : null,
     totalPnl: marketValue != null ? round2(marketValue + r.proceeds - r.invested) : null,
+    floatingPnlPct: marketValue != null && holdingPrincipal > EPS ? round2(((marketValue - holdingPrincipal) / holdingPrincipal) * 100) : null,
+    totalPnlPct: marketValue != null && r.invested > EPS ? round2(((marketValue + r.proceeds - r.invested) / r.invested) * 100) : null,
   };
 }

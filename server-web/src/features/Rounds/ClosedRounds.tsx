@@ -1,7 +1,9 @@
 // 已清仓轮次页：历史轮次表（清仓快照直接读库）+ 展开交易明细。
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { MetricTip } from '@/components/MetricTip';
 import { fetchRounds, type RoundData } from '@/lib/api';
-import { fmt, fmt4, pnlValue } from '@/lib/format';
+import { fmt, fmt4, pctValue, pnlValue } from '@/lib/format';
+import { METRIC_FORMULAS } from '@/lib/formulas';
 import { useFundSelection } from './useFundSelection';
 
 export function ClosedRounds() {
@@ -59,13 +61,14 @@ export function ClosedRounds() {
               <tr>
                 <th>轮次</th>
                 <th>状态</th>
-                <th>买入次数</th>
-                <th>卖出次数</th>
-                <th>总投入</th>
-                <th>累计回款</th>
-                <th>已实现盈亏</th>
-                <th>已卖本金</th>
-                <th>轮总盈亏</th>
+                <th><MetricTip label="买入次数" tip={METRIC_FORMULAS.buyCount} /></th>
+                <th><MetricTip label="卖出次数" tip={METRIC_FORMULAS.sellCount} /></th>
+                <th><MetricTip label="总投入" tip={METRIC_FORMULAS.invested} /></th>
+                <th><MetricTip label="累计回款" tip={METRIC_FORMULAS.proceeds} /></th>
+                <th><MetricTip label="已实现盈亏" tip={METRIC_FORMULAS.realizedPnl} /></th>
+                <th><MetricTip label="已卖本金" tip={METRIC_FORMULAS.soldPrincipal} /></th>
+                <th><MetricTip label="轮总盈亏" tip={METRIC_FORMULAS.totalPnl} /></th>
+                <th><MetricTip label="轮总盈亏率" tip={METRIC_FORMULAS.totalPnl} /></th>
                 <th>闭轮时间</th>
                 <th>明细</th>
               </tr>
@@ -85,6 +88,9 @@ export function ClosedRounds() {
                     <td className={pnlValue(r.metrics.realizedPnl).cls}>{pnlValue(r.metrics.realizedPnl).text}</td>
                     <td>{fmt(r.metrics.soldPrincipal)}</td>
                     <td className={`font-semibold ${pnlValue(r.metrics.totalPnl ?? 0).cls}`}>{pnlValue(r.metrics.totalPnl ?? 0).text}</td>
+                    <td className={r.metrics.totalPnlPct != null ? pctValue(r.metrics.totalPnlPct).cls : ''}>
+                      {r.metrics.totalPnlPct != null ? pctValue(r.metrics.totalPnlPct).text : '—'}
+                    </td>
                     <td className="text-dim">{r.closedAt ? new Date(r.closedAt).toLocaleString('zh-CN', { hour12: false }) : '—'}</td>
                     <td>
                       <button type="button" className="act" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
@@ -94,7 +100,7 @@ export function ClosedRounds() {
                   </tr>
                   {expanded === r.id && (
                     <tr>
-                      <td colSpan={11}>
+                      <td colSpan={12}>
                         <table className="tabular-nums">
                           <tbody>
                             {r.txns.map((t) => (

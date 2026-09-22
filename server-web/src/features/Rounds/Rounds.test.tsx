@@ -22,6 +22,7 @@ function makeRound(over: Partial<RoundData> = {}): RoundData {
       buyCount: 1, sellCount: 0, invested: 1000, proceeds: 0, realizedPnl: 0, soldPrincipal: 0,
       holdingPrincipal: 1000, holdingShares: 500, dilutedCost: 1000, dilutedRealizedPnl: 0,
       latestNav: 3.722, marketValue: 1861, floatingPnl: 861, dilutedHoldingPnl: 861, totalPnl: 861,
+      floatingPnlPct: 86.1, totalPnlPct: 86.1,
     },
     openBuys: [{ id: 11, date: '2026-09-01', nav: 2, shares: 500, principal: 1000 }],
     txns: [{ id: 11, direction: 'buy', date: '2026-09-01', amount: 1000, nav: 2, shares: 500, fee: 0, pairBuyId: null }],
@@ -74,9 +75,26 @@ describe('Rounds', () => {
     await screen.findByText('第 1 轮');
     expect(screen.getByText('进行中')).toBeTruthy();
     expect(screen.getByText('持仓收益·摊薄（对账）')).toBeTruthy();
-    expect(screen.getAllByText('+861.00').length).toBeGreaterThanOrEqual(1); // 浮动/摊薄/总盈亏
+    expect(screen.getAllByText('+861.00').length).toBe(3); // 浮动/摊薄/轮总盈亏
+    expect(screen.getAllByText('+86.10%').length).toBe(2); // 浮动盈亏率 + 轮总盈亏率独立指标
     expect(screen.getByText(/3\.7220/)).toBeTruthy(); // 最新净值
     expect(screen.getByRole('button', { name: '清仓闭轮' })).toHaveProperty('disabled', true);
+  });
+
+  it('指标 ⓘ 点击弹出计算公式气泡，再点关闭', async () => {
+    stubApi((url) => {
+      if (url.includes('/api/rounds?fund=')) {
+        return new Response(JSON.stringify({ ok: true, rounds: [makeRound()] }), { status: 200 });
+      }
+      return null;
+    });
+    render(<Rounds />);
+    await screen.findByText('第 1 轮');
+    fireEvent.click(screen.getAllByRole('button', { name: '浮动盈亏计算公式' })[0]!);
+    await screen.findByRole('tooltip');
+    expect(screen.getByRole('tooltip').textContent).toContain('浮动盈亏 = 持仓市值 − 持有本金');
+    fireEvent.click(screen.getAllByRole('button', { name: '浮动盈亏计算公式' })[0]!);
+    expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
   it('录入买入：份额按 金额÷净值 自动带出，提交后更新', async () => {

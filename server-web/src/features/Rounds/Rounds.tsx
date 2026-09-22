@@ -12,7 +12,9 @@ import {
   type RoundData,
   type RoundMetrics,
 } from '@/lib/api';
-import { fmt, fmt4, pnlValue, round2 } from '@/lib/format';
+import { MetricTip } from '@/components/MetricTip';
+import { fmt, fmt4, pctValue, pnlValue, round2 } from '@/lib/format';
+import { METRIC_FORMULAS } from '@/lib/formulas';
 import { useFundSelection } from './useFundSelection';
 
 function today(): string {
@@ -21,11 +23,13 @@ function today(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-function Stat({ label, value, pnl }: { label: string; value: string; pnl?: number | null }) {
+function Stat({ label, tip, value, pnl }: { label: string; tip?: string; value: string; pnl?: number | null }) {
   const cls = pnl != null ? pnlValue(pnl).cls : '';
   return (
     <div>
-      <p className="text-xs text-dim">{label}</p>
+      <p className="text-xs text-dim">
+        <MetricTip label={label} tip={tip} />
+      </p>
       <p className={`mt-0.5 font-semibold tabular-nums ${cls}`}>{value}</p>
     </div>
   );
@@ -45,18 +49,20 @@ const TXN_FILTERS: { key: TxnFilter; label: string }[] = [
 function MetricsGrid({ m }: { m: RoundMetrics }) {
   return (
     <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4 lg:grid-cols-6">
-      <Stat label="买入次数" value={String(m.buyCount)} />
-      <Stat label="卖出次数" value={String(m.sellCount)} />
-      <Stat label="总投入" value={fmt(m.invested)} />
-      <Stat label="累计回款" value={fmt(m.proceeds)} />
-      <Stat label="已实现盈亏" value={pnlValue(m.realizedPnl).text} pnl={m.realizedPnl} />
-      <Stat label="已卖本金" value={fmt(m.soldPrincipal)} />
-      <Stat label="持有本金" value={fmt(m.holdingPrincipal)} />
-      <Stat label="持有份额" value={fmt(m.holdingShares)} />
-      <Stat label="持仓市值" value={money(m.marketValue)} />
-      <Stat label="浮动盈亏" value={m.floatingPnl != null ? pnlValue(m.floatingPnl).text : '—'} pnl={m.floatingPnl} />
-      <Stat label="持仓收益·摊薄（对账）" value={m.dilutedHoldingPnl != null ? pnlValue(m.dilutedHoldingPnl).text : '—'} pnl={m.dilutedHoldingPnl} />
-      <Stat label="轮总盈亏" value={m.totalPnl != null ? pnlValue(m.totalPnl).text : '—'} pnl={m.totalPnl} />
+      <Stat label="买入次数" tip={METRIC_FORMULAS.buyCount} value={String(m.buyCount)} />
+      <Stat label="卖出次数" tip={METRIC_FORMULAS.sellCount} value={String(m.sellCount)} />
+      <Stat label="总投入" tip={METRIC_FORMULAS.invested} value={fmt(m.invested)} />
+      <Stat label="累计回款" tip={METRIC_FORMULAS.proceeds} value={fmt(m.proceeds)} />
+      <Stat label="已实现盈亏" tip={METRIC_FORMULAS.realizedPnl} value={pnlValue(m.realizedPnl).text} pnl={m.realizedPnl} />
+      <Stat label="已卖本金" tip={METRIC_FORMULAS.soldPrincipal} value={fmt(m.soldPrincipal)} />
+      <Stat label="持有本金" tip={METRIC_FORMULAS.holdingPrincipal} value={fmt(m.holdingPrincipal)} />
+      <Stat label="持有份额" tip={METRIC_FORMULAS.holdingShares} value={fmt(m.holdingShares)} />
+      <Stat label="持仓市值" tip={METRIC_FORMULAS.marketValue} value={money(m.marketValue)} />
+      <Stat label="浮动盈亏" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnl != null ? pnlValue(m.floatingPnl).text : '—'} pnl={m.floatingPnl} />
+      <Stat label="浮动盈亏率" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnlPct != null ? pctValue(m.floatingPnlPct).text : '—'} pnl={m.floatingPnlPct} />
+      <Stat label="持仓收益·摊薄（对账）" tip={METRIC_FORMULAS.dilutedHoldingPnl} value={m.dilutedHoldingPnl != null ? pnlValue(m.dilutedHoldingPnl).text : '—'} pnl={m.dilutedHoldingPnl} />
+      <Stat label="轮总盈亏" tip={METRIC_FORMULAS.totalPnl} value={m.totalPnl != null ? pnlValue(m.totalPnl).text : '—'} pnl={m.totalPnl} />
+      <Stat label="轮总盈亏率" tip={METRIC_FORMULAS.totalPnl} value={m.totalPnlPct != null ? pctValue(m.totalPnlPct).text : '—'} pnl={m.totalPnlPct} />
     </div>
   );
 }

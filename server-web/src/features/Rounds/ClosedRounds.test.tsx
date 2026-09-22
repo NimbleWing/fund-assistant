@@ -21,6 +21,7 @@ const CLOSED: RoundData = {
     buyCount: 2, sellCount: 1, invested: 3000, proceeds: 3500, realizedPnl: 500, soldPrincipal: 3000,
     holdingPrincipal: 0, holdingShares: 0, dilutedCost: 0, dilutedRealizedPnl: 500,
     latestNav: null, marketValue: null, floatingPnl: null, dilutedHoldingPnl: null, totalPnl: 500,
+    floatingPnlPct: null, totalPnlPct: 16.67,
   },
   openBuys: [],
   txns: [
@@ -55,7 +56,17 @@ describe('ClosedRounds', () => {
     await screen.findByText('已清仓');
     expect(screen.getByText('第 1 轮')).toBeTruthy();
     expect(screen.queryByText('第 2 轮')).toBeNull();
-    expect(screen.getAllByText('+500.00').length).toBeGreaterThanOrEqual(1); // 已实现盈亏与轮总盈亏
+    expect(screen.getAllByText('+500.00').length).toBe(2); // 已实现盈亏 + 轮总盈亏
+    expect(screen.getByText('+16.67%')).toBeTruthy(); // 轮总盈亏率独立列
+  });
+
+  it('表头 ⓘ 点击弹出计算公式气泡', async () => {
+    stubApi([CLOSED]);
+    render(<ClosedRounds />);
+    await screen.findByText('第 1 轮');
+    fireEvent.click(screen.getAllByRole('button', { name: '轮总盈亏计算公式' })[0]!);
+    await screen.findByRole('tooltip');
+    expect(screen.getByRole('tooltip').textContent).toContain('轮总盈亏 = 持仓市值 + 累计回款 − 轮总投入');
   });
 
   it('展开查看交易明细（含手续费）', async () => {
