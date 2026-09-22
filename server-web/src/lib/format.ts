@@ -21,3 +21,10 @@ export function pnlValue(v: number): { text: string; cls: string } {
   if (v < 0) return { text: v.toFixed(2), cls: 'text-down' };
   return { text: '0.00', cls: 'text-dim' };
 }
+
+/** 带符号百分比文本 + up/down 配色类；零灰。 */
+export function pctValue(v: number): { text: string; cls: string } {
+  if (v > 0) return { text: `+${v.toFixed(2)}%`, cls: 'text-up' };
+  if (v < 0) return { text: `${v.toFixed(2)}%`, cls: 'text-down' };
+  return { text: '0.00%', cls: 'text-dim' };
+}

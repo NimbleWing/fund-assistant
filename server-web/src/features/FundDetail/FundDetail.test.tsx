@@ -105,7 +105,23 @@ describe('FundDetail', () => {
     expect(screen.getByText('1.4150')).toBeTruthy();
     // 2026-09-21：实际 1.4118，预估 1.4150 → 偏差 (1.415-1.4118)/1.4118 ≈ +0.23%
     expect(screen.getByText(/偏差 \+0\.23%/)).toBeTruthy();
-    // 2026-09-18 无预估 → 占位
+    // 2026-09-18 无预估 → 预估净值/预估涨跌幅占位
+    const row18 = screen.getByText('2026-09-18').closest('tr');
+    expect(row18?.querySelectorAll('td')[3]?.textContent).toBe('—');
+    expect(row18?.querySelectorAll('td')[4]?.textContent).toBe('—');
+    // 2026-09-21 预估涨跌幅直接用固化 estimatedPct
+    const row21 = screen.getByText('2026-09-21').closest('tr');
+    expect(row21?.querySelectorAll('td')[4]?.textContent).toBe('+0.23%');
+  });
+
+  it('涨跌幅列：按前一实际净值交易日计算，最早行无基准显示占位', async () => {
+    stubApi();
+    render(<FundDetail fund={FUND} onBack={() => {}} />);
+    await screen.findByText('2026-09-21');
+    // 2026-09-21：实际 1.4118，前一交易日（09-18）1.4112 → (1.4118-1.4112)/1.4112 ≈ +0.04%
+    const row21 = screen.getByText('2026-09-21').closest('tr');
+    expect(row21?.querySelectorAll('td')[2]?.textContent).toBe('+0.04%');
+    // 2026-09-18 为最早记录，无前置基准 → 占位
     const row18 = screen.getByText('2026-09-18').closest('tr');
     expect(row18?.querySelectorAll('td')[2]?.textContent).toBe('—');
   });

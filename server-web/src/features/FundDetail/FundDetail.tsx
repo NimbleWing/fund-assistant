@@ -1,8 +1,10 @@
-// 基金净值详情页（关注列表点击进入，非侧边栏页签）：净值历史表（含固化预估净值列）+ 手动补录表单。
+// 基金净值详情页（关注列表点击进入，非侧边栏页签）：净值历史表（含涨跌幅/固化预估净值与预估涨跌幅列）+ 手动补录表单。
 // 补录与启动同步同一去重规则：已存在日期不覆盖，服务端返回 inserted:false，页面明确提示。
 // 预估净值由服务端在交易日 16:00 后自动固化（fund_est_nav），与实际净值按日期合并展示。
+// 涨跌幅前端按相邻实际净值交易日计算；预估涨跌幅直接用固化 estimatedPct（相对昨收）。
 import { useCallback, useEffect, useState } from 'react';
 import { addFundNav, fetchFundNavs, type EstNavRow, type NavRow } from '@/lib/api';
+import { pctValue } from '@/lib/format';
 
 interface FundDetailProps {
   fund: { code: string; name: string; type: string | null };
@@ -16,6 +18,8 @@ interface ViewRow {
   date: string;
   unitNav: number | null;
   est: EstNavRow | null;
+  /** 前一有实际净值交易日的单位净值（涨跌幅基准；首行或无前置为 null） */
+  prevUnitNav: number | null;
 }
 
 export function FundDetail({ fund, onBack }: FundDetailProps) {
@@ -46,13 +50,21 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
 
   const viewRows: ViewRow[] = (() => {
     const map = new Map<string, ViewRow>();
-    for (const r of rows ?? []) map.set(r.date, { date: r.date, unitNav: r.unitNav, est: null });
+    for (const r of rows ?? []) map.set(r.date, { date: r.date, unitNav: r.unitNav, est: null, prevUnitNav: null });
     for (const e of estRows) {
       const v = map.get(e.date);
       if (v) v.est = e;
-      else map.set(e.date, { date: e.date, unitNav: null, est: e });
+      else map.set(e.date, { date: e.date, unitNav: null, est: e, prevUnitNav: null });
     }
-    return [...map.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const sorted = [...map.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+    // 倒序数组（新→旧），从尾部（最早日期）向前推进，跟踪前一实际净值交易日
+    let prev: number | null = null;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const r = sorted[i] as ViewRow;
+      r.prevUnitNav = prev;
+      if (r.unitNav != null) prev = r.unitNav;
+    }
+    return sorted;
   })();
 
   // 分页：客户端切片（全量已拉取，单基金历史量级 ~千条）
@@ -149,21 +161,27 @@ export function FundDetail({ fund, onBack }: FundDetailProps) {
               <tr>
                 <th>净值日期</th>
                 <th>单位净值</th>
+                <th>涨跌幅</th>
                 <th>预估净值</th>
+                <th>预估涨跌幅</th>
               </tr>
             </thead>
             <tbody>
               {pageRows.map((r) => {
                 // 预估偏差 =（预估 − 实际）/ 实际；两者都有时展示
                 const dev = r.est != null && r.unitNav != null ? ((r.est.estimatedNav - r.unitNav) / r.unitNav) * 100 : null;
+                // 涨跌幅 =（当日 − 前一实际净值交易日）/ 前一净值；仅预估行/首行无基准
+                const changePct = r.unitNav != null && r.prevUnitNav != null && r.prevUnitNav > 0 ? ((r.unitNav - r.prevUnitNav) / r.prevUnitNav) * 100 : null;
                 return (
                   <tr key={r.date}>
                     <td>{r.date}</td>
                     <td>{r.unitNav != null ? r.unitNav.toFixed(4) : '—'}</td>
+                    <td>{changePct != null ? <span className={pctValue(changePct).cls}>{pctValue(changePct).text}</span> : '—'}</td>
                     <td>
                       {r.est != null ? r.est.estimatedNav.toFixed(4) : '—'}
                       {dev != null && <span className="ml-1 text-xs text-dim">（偏差 {dev >= 0 ? '+' : ''}{dev.toFixed(2)}%）</span>}
                     </td>
+                    <td>{r.est != null ? <span className={pctValue(r.est.estimatedPct).cls}>{pctValue(r.est.estimatedPct).text}</span> : '—'}</td>
                   </tr>
                 );
               })}
