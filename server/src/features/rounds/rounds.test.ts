@@ -10,7 +10,7 @@ import { HttpError, json, type Route } from '../../lib/http.ts';
 import { openWatchStore } from '../watchlist/store.ts';
 import { openNavStore } from '../nav/store.ts';
 import { openRoundsStore } from './store.ts';
-import { buyLotPnl, calcRound, openBuyLots, type RoundTxnInput } from './calc.ts';
+import { buyLotPnl, calcRound, openBuyLots, sharesHeldOver, type RoundTxnInput } from './calc.ts';
 import { roundsRoutes } from './routes.ts';
 
 describe('calcRound', () => {
@@ -134,6 +134,27 @@ describe('buyLotPnl（买入批次盈亏归因）', () => {
   });
 });
 
+describe('sharesHeldOver（满 N 天持有份额，真实持有期口径）', () => {
+  const b = (date: string, shares: number) => ({ direction: 'buy' as const, date, shares });
+  const s = (date: string, shares: number) => ({ direction: 'sell' as const, date, shares });
+
+  it('超过 30 天（不含第 30 天）计入，恰满 30 天与未满均不计', () => {
+    // 基准日 2026-09-30：08-30 买入 31 天计入，08-31 恰 30 天与 09-01（29 天）均不计
+    expect(sharesHeldOver([b('2026-08-30', 500), b('2026-08-31', 200), b('2026-09-01', 300)], 30, '2026-09-30')).toBe(500);
+  });
+
+  it('卖出纯 FIFO 消耗最早批次，与账务配对无关', () => {
+    // A 40 天前 500 份、B 10 天前 500 份；卖 500 → 真实持有期口径消耗 A，剩余全是 B → 满30天 = 0
+    expect(sharesHeldOver([b('2026-08-15', 500), b('2026-09-14', 500), s('2026-09-20', 500)], 30, '2026-09-24')).toBe(0);
+  });
+
+  it('部分消耗：跨批次卖出后按剩余批次日期判断', () => {
+    const buys = [b('2026-08-20', 500), b('2026-09-10', 500)]; // A 满 30 天、B 未满
+    expect(sharesHeldOver([...buys, s('2026-09-22', 250)], 30, '2026-09-24')).toBe(250); // A 剩 250（满）
+    expect(sharesHeldOver([...buys, s('2026-09-22', 750)], 30, '2026-09-24')).toBe(0); // A 耗尽，B 剩 250（未满）
+  });
+});
+
 describe('rounds store', () => {
   it('listTxns 按交易时间排序（同日按录入顺序），与录入先后无关', () => {
     const s = openRoundsStore(':memory:');
@@ -243,8 +264,23 @@ describe('rounds routes', () => {
     await post(`/api/rounds/${rid}/txns`, { direction: 'buy', date: '2026-09-08', amount: 2000, nav: 4, shares: 500 });
     const afterSell = (await (
       await post(`/api/rounds/${rid}/txns`, { direction: 'sell', date: '2026-09-15', amount: 2250, nav: 3, shares: 750, fee: 5 })
-    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number; floatingPnlPct: number | null; totalPnlPct: number | null }; buyPnls: { realizedPnl: number; floatingPnl: number | null }[]; txns: { fee: number }[] } };
+    ).json()) as { round: { metrics: { realizedPnl: number; holdingShares: number; latestNav: number; totalPnl: number; floatingPnlPct: number | null; totalPnlPct: number | null; sharesHeld30d: number }; buyPnls: { realizedPnl: number; floatingPnl: number | null }[]; txns: { fee: number }[] } };
     expect(afterSell.round.metrics).toMatchObject({ realizedPnl: 250, holdingShares: 250, latestNav: 3.722, totalPnl: 180.5, floatingPnlPct: -6.95, totalPnlPct: 6.02 });
+    // 满30天份额：真实持有期口径（卖出 FIFO 消耗最早批次后，剩余 250 份属 09-08 批次），随当天日期动态判定
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    expect(afterSell.round.metrics.sharesHeld30d).toBe(
+      sharesHeldOver(
+        [
+          { direction: 'buy', date: '2026-09-01', shares: 500 },
+          { direction: 'buy', date: '2026-09-08', shares: 500 },
+          { direction: 'sell', date: '2026-09-15', shares: 750 },
+        ],
+        30,
+        todayStr,
+      ),
+    );
     // 批次盈亏归因：卖出 750 份 FIFO 跨两批消耗（各耗本金 1000），回款各分摊 1125 → 各已实现 +125；第二批剩余 250 份浮动 −69.5
     expect(afterSell.round.buyPnls.map((b) => b.realizedPnl)).toEqual([125, 125]);
     expect(afterSell.round.buyPnls[1]?.floatingPnl).toBe(-69.5);

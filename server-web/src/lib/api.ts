@@ -257,6 +257,8 @@ export interface RoundMetrics {
   floatingPnlPct: number | null;
   /** 轮总盈亏率（%）；无投入时为 null */
   totalPnlPct: number | null;
+  /** 满30天持有份额（真实持有期口径：卖出恒消耗最早批次，与账务配对无关；已清仓轮为 0） */
+  sharesHeld30d: number;
 }
 
 /** 持有中的买入批次（卖出录入的显式配对选项）。 */

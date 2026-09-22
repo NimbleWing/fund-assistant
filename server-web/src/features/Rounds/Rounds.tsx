@@ -81,6 +81,7 @@ function MetricsGrid({ m }: { m: RoundMetrics }) {
       <Stat label="已卖本金" tip={METRIC_FORMULAS.soldPrincipal} value={fmt(m.soldPrincipal)} />
       <Stat label="持有本金" tip={METRIC_FORMULAS.holdingPrincipal} value={fmt(m.holdingPrincipal)} />
       <Stat label="持有份额" tip={METRIC_FORMULAS.holdingShares} value={fmt(m.holdingShares)} />
+      <Stat label="满30天份额" tip={METRIC_FORMULAS.sharesHeld30d} value={fmt(m.sharesHeld30d)} />
       <Stat label="持仓市值" tip={METRIC_FORMULAS.marketValue} value={money(m.marketValue)} />
       <Stat label="浮动盈亏" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnl != null ? pnlValue(m.floatingPnl).text : '—'} pnl={m.floatingPnl} />
       <Stat label="浮动盈亏率" tip={METRIC_FORMULAS.floatingPnl} value={m.floatingPnlPct != null ? pctValue(m.floatingPnlPct).text : '—'} pnl={m.floatingPnlPct} />

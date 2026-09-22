@@ -21,7 +21,7 @@ const CLOSED: RoundData = {
     buyCount: 2, sellCount: 1, invested: 3000, proceeds: 3500, realizedPnl: 500, soldPrincipal: 3000,
     holdingPrincipal: 0, holdingShares: 0, dilutedCost: 0, dilutedRealizedPnl: 500,
     latestNav: null, marketValue: null, floatingPnl: null, dilutedHoldingPnl: null, totalPnl: 500,
-    floatingPnlPct: null, totalPnlPct: 16.67,
+    floatingPnlPct: null, totalPnlPct: 16.67, sharesHeld30d: 0,
   },
   openBuys: [],
   buyPnls: [],

@@ -194,6 +194,34 @@ export function buyLotPnl(txns: RoundTxnInput[], latestNav: number | null): BuyL
   }));
 }
 
+/** 满 N 天持有份额：真实持有期口径（对齐基金公司赎回费先进先出规则）——买卖按传入顺序（时间序）
+ * 回放，卖出恒消耗最早买入的份额（与账务配对 pairBuyId 无关），剩余份额中买入日期距今超过 days 天
+ * （> days，不含第 days 天当天）的部分求和。
+ * 日期为 YYYY-MM-DD，按 UTC 比较避免时区误差；today 同格式。 */
+export function sharesHeldOver(txns: { direction: 'buy' | 'sell'; date: string; shares: number }[], days: number, today: string): number {
+  const ms = (d: string): number => {
+    const [y, m, dd] = d.split('-').map(Number);
+    return Date.UTC(y ?? 0, (m ?? 1) - 1, dd ?? 1);
+  };
+  const cutoff = ms(today) - days * 86_400_000;
+  const lots: { date: number; shares: number }[] = [];
+  for (const t of txns) {
+    if (t.direction === 'buy') {
+      lots.push({ date: ms(t.date), shares: t.shares });
+      continue;
+    }
+    let remaining = t.shares;
+    while (remaining > EPS && lots.length > 0) {
+      const lot = lots[0] as { date: number; shares: number };
+      const take = Math.min(remaining, lot.shares);
+      lot.shares -= take;
+      remaining -= take;
+      if (lot.shares <= EPS) lots.shift();
+    }
+  }
+  return round2(lots.reduce((s, l) => (l.date < cutoff ? s + l.shares : s), 0));
+}
+
 export function calcRound(txns: RoundTxnInput[], latestNav: number | null): RoundMetrics {
   const r = replay(txns);
   const holdingPrincipal = r.lots.reduce((s, l) => s + l.principal, 0);

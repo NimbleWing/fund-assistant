@@ -22,7 +22,7 @@ function makeRound(over: Partial<RoundData> = {}): RoundData {
       buyCount: 1, sellCount: 0, invested: 1000, proceeds: 0, realizedPnl: 0, soldPrincipal: 0,
       holdingPrincipal: 1000, holdingShares: 500, dilutedCost: 1000, dilutedRealizedPnl: 0,
       latestNav: 3.722, marketValue: 1861, floatingPnl: 861, dilutedHoldingPnl: 861, totalPnl: 861,
-      floatingPnlPct: 86.1, totalPnlPct: 86.1,
+      floatingPnlPct: 86.1, totalPnlPct: 86.1, sharesHeld30d: 250,
     },
     openBuys: [{ id: 11, date: '2026-09-01', nav: 2, shares: 500, principal: 1000 }],
     buyPnls: [{ id: 11, holdingShares: 500, realizedPnl: 0, floatingPnl: 861 }],
@@ -78,6 +78,8 @@ describe('Rounds', () => {
     expect(screen.getByText('持仓收益·摊薄（对账）')).toBeTruthy();
     expect(screen.getAllByText('+861.00').length).toBe(4); // 浮动/摊薄/轮总盈亏 + 买入行盈亏（未卖出按最新净值）
     expect(screen.getAllByText('+86.10%').length).toBe(2); // 浮动盈亏率 + 轮总盈亏率独立指标
+    expect(screen.getByText('满30天份额')).toBeTruthy();
+    expect(screen.getByText('250.00')).toBeTruthy(); // sharesHeld30d
     expect(screen.getByText(/3\.7220/)).toBeTruthy(); // 最新净值
     expect(screen.getByRole('button', { name: '清仓闭轮' })).toHaveProperty('disabled', true);
   });

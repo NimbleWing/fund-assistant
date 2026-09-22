@@ -4,11 +4,18 @@ import { asRecord, HttpError, json, readJson, type Route } from '../../lib/http.
 import { openWatchStore, type WatchStore } from '../watchlist/store.ts';
 import { openNavStore, type NavStore } from '../nav/store.ts';
 import { openRoundsStore, type RoundsStore, type RoundRow } from './store.ts';
-import { buyLotPnl, calcRound, openBuyLots, type BuyLotPnl, type RoundMetrics } from './calc.ts';
+import { buyLotPnl, calcRound, openBuyLots, sharesHeldOver, type BuyLotPnl, type RoundMetrics } from './calc.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** 持有份额浮点噪声容差（份额两位小数累加） */
 const SHARE_EPS = 0.005;
+
+/** 本地今日 YYYY-MM-DD（满30天份额的持有期判断基准日） */
+function localToday(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 interface Stores {
   watch?: WatchStore;
@@ -27,7 +34,10 @@ interface OpenBuy {
   principal: number;
 }
 
-function toResponse(round: RoundRow, txns: ReturnType<RoundsStore['listTxns']>, metrics: RoundMetrics, openBuys: OpenBuy[], buyPnls: BuyLotPnl[]) {
+/** 响应指标：calcRound 动态指标 + 满30天持有份额（需交易日期，routes 侧计算）。 */
+type RoundMetricsOut = RoundMetrics & { sharesHeld30d: number };
+
+function toResponse(round: RoundRow, txns: ReturnType<RoundsStore['listTxns']>, metrics: RoundMetricsOut, openBuys: OpenBuy[], buyPnls: BuyLotPnl[]) {
   return {
     id: round.id,
     fundCode: round.fundCode,
@@ -51,7 +61,7 @@ export function roundsRoutes(stores?: Stores): Route[] {
   const rounds = (): RoundsStore => (lazyRounds ??= openRoundsStore());
 
   /** 已清仓轮指标直接读快照；进行中轮动态计算（最新净值取 fund_nav 最新一条）。 */
-  const metricsOf = (round: RoundRow): { metrics: RoundMetrics; txns: ReturnType<RoundsStore['listTxns']>; openBuys: OpenBuy[]; buyPnls: BuyLotPnl[] } => {
+  const metricsOf = (round: RoundRow): { metrics: RoundMetricsOut; txns: ReturnType<RoundsStore['listTxns']>; openBuys: OpenBuy[]; buyPnls: BuyLotPnl[] } => {
     const txns = rounds().listTxns(round.id);
     if (round.status === 'closed') {
       return {
@@ -77,6 +87,7 @@ export function roundsRoutes(stores?: Stores): Route[] {
           floatingPnlPct: null,
           totalPnlPct:
             (round.invested ?? 0) > 0 ? Math.round(((round.totalPnl ?? 0) / (round.invested ?? 1)) * 10000) / 100 : null,
+          sharesHeld30d: 0,
         },
       };
     }
@@ -87,7 +98,8 @@ export function roundsRoutes(stores?: Stores): Route[] {
       const t = l.id != null ? byId.get(l.id) : undefined;
       return l.id != null && t ? [{ id: l.id, date: t.date, nav: t.nav, shares: l.shares, principal: l.principal }] : [];
     });
-    return { txns, metrics: calcRound(txns, latest?.unitNav ?? null), openBuys, buyPnls: buyLotPnl(txns, latest?.unitNav ?? null) };
+    const metrics: RoundMetricsOut = { ...calcRound(txns, latest?.unitNav ?? null), sharesHeld30d: sharesHeldOver(txns, 30, localToday()) };
+    return { txns, metrics, openBuys, buyPnls: buyLotPnl(txns, latest?.unitNav ?? null) };
   };
 
   const mustActiveRound = (id: number): RoundRow => {
