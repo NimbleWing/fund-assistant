@@ -14,8 +14,19 @@ header {
   padding: 12px 14px;
   border-bottom: 1px solid #2a2c33;
 }
-header h1 { margin: 0; font-size: 15px; }
+header h1 { margin: 0; font-size: 15px; flex: 1; }
 #version { color: #8b8e98; font-size: 12px; }
+#reload-btn {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: #8b8e98;
+  background: transparent;
+  border: 1px solid #3a3d47;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#reload-btn:hover { color: #e6e7ea; border-color: #565a68; }
 .status {
   display: flex;
   align-items: center;

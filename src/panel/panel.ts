@@ -1,12 +1,13 @@
 // 侧边栏面板入口：版本展示 + 本地服务状态卡片（含重启按钮）+ 持仓估值区块。
 // 交互语义（对齐 video-assistant）：在线点击卡片 = 新标签页打开管理页；离线点击卡片 = native messaging 拉起本地服务；
 // 在线时点「重启」按钮 = native messaging 重启本地服务。
-import { SERVER_ORIGIN } from '../core/config.ts';
+import { RELOAD_FLAG_KEY, SERVER_ORIGIN } from '../core/config.ts';
 import { checkHealth, type HealthResult } from '../core/health.ts';
 import { restartServer, startServer } from '../core/server-ctl.ts';
 import { fetchHoldingEstimates, type HoldingEstimate } from '../core/holdings.ts';
 
 const versionEl = document.getElementById('version') as HTMLElement;
+const reloadBtn = document.getElementById('reload-btn') as HTMLButtonElement;
 const dotEl = document.getElementById('dot') as HTMLElement;
 const textEl = document.getElementById('status-text') as HTMLElement;
 const cardEl = document.getElementById('status-card') as HTMLElement;
@@ -17,6 +18,11 @@ const holdingsListEl = document.getElementById('holdings-list') as HTMLElement;
 const holdingsTimeEl = document.getElementById('holdings-time') as HTMLElement;
 
 versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
+
+// 重载扩展：开发期 build 后一键加载最新产物。先插旗（storage.session），SW 启动后自动重开侧边栏
+reloadBtn.addEventListener('click', () => {
+  void chrome.storage.session.set({ [RELOAD_FLAG_KEY]: true }).then(() => chrome.runtime.reload());
+});
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
