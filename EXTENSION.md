@@ -40,12 +40,13 @@ MV3 扩展：侧边栏面板承载 UI，后台 Service Worker 负责调度。面
 - 扩展本体**零运行时 npm 依赖**（与 video-assistant 一致），新增能力优先用 Web/Chrome 原生 API。
 - 纯逻辑放 `core/`（注入依赖、可单测）；页面逻辑放 `panel/`（薄壳，尽量少测 DOM）。
 
-## 5. 面板状态卡片与一键启动
+## 5. 面板状态卡片与一键启动/重启
 
-- `panel.ts` 加载即探测 `{SERVER_ORIGIN}/api/health`（2s 超时，实现在 `core/health.ts`），30s 轮询；探测/启动期间不重复触发。
+- `panel.ts` 加载即探测 `{SERVER_ORIGIN}/api/health`（2s 超时，实现在 `core/health.ts`），30s 轮询；探测/启动/重启期间不重复触发。
 - **交互语义**（对齐 video-assistant）：
   - **在线**点击卡片 → 新标签页打开管理页（`chrome.tabs.create`，无需 tabs 权限）；
-  - **离线**点击卡片 → `core/server-ctl.ts` 的 `startServer()`：`chrome.runtime.sendNativeMessage('com.fund.assistant', {cmd:'start'})` → host detached 拉起服务 → 每秒心跳轮询确认上线（≤10s）。
+  - **离线**点击卡片 → `core/server-ctl.ts` 的 `startServer()`：`chrome.runtime.sendNativeMessage('com.fund.assistant', {cmd:'start'})` → host detached 拉起服务 → 每秒心跳轮询确认上线（≤10s）；
+  - **在线**点击卡片右侧「重启」按钮（仅在线显示，点击不冒泡到卡片）→ `restartServer()`：`{cmd:'restart'}` → host 杀掉 17521 监听进程并重新拉起 → 每秒心跳轮询确认上线（≤10s），期间隐藏持仓估值区块。
 - 启动前置：**先运行 `server/install-native.bat` 安装 native messaging host**（一次性，见 `server/DESIGN.md` §6）；未安装时点击离线卡片会 toast 提示失败原因（含手动 `server/start.bat` 兜底）。
 - 面板享有 host_permissions 豁免，可直连本地服务；提示统一走 `#toast`（底部浮层）。
 

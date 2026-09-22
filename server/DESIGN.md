@@ -65,9 +65,9 @@
                                               回 {ok:true, pid} 后 host 即退 ◀── 服务独立存活，面板轮询 /api/health 确认上线（≤10s）
 ```
 
-- `native-host.ts`：一次性引导 host，只认 `cmd:'start'`，其余回 `{ok:false, error:'unknown cmd'}`。
+- `native-host.ts`：一次性引导 host，仅接受 `cmd:'start'`（拉起服务）与 `cmd:'restart'`（`netstat` 查 17521 监听 PID → `taskkill /F` → 轮询确认端口释放 ≤2s → 重新拉起，回 `{ok:true, pid, killed}`），其余回 `{ok:false, error:'unknown cmd'}`。
 - `install-native.ps1`（或双击 `install-native.bat`）：生成 `com.fund.assistant.json`（type=stdio，path 指向 `native-host.cmd`，`allowed_origins` 锁定扩展 id）并写 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.fund.assistant`（HKCU 无需管理员）。安装产物 `.json` 与 `server.log` 不入库。
-- **安全边界**：`allowed_origins` 只允许本扩展；host 不接受除 start 外的任何指令；服务仅监听 127.0.0.1。
+- **安全边界**：`allowed_origins` 只允许本扩展；host 不接受除 start/restart 外的任何指令，restart 只杀 17521 端口监听进程；服务仅监听 127.0.0.1。
 - 扩展 id：dist/ 目录路径不变则 id 稳定；换路径/换机重装后需 `pwsh install-native.ps1 -ExtensionId <新id>`。
 
 ## 7. 临时 feature：买卖记录分析（records/）

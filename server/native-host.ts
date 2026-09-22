@@ -1,7 +1,8 @@
 // Native messaging 引导 host：接收扩展消息，detached 启动本地服务后即退出。
 // 协议：4 字节小端长度前缀 + JSON（Chrome native messaging 标准）。
+// 指令：start（拉起服务）/ restart（杀掉 17521 监听进程后重新拉起，仅此两个指令）。
 // 安装：install-native.ps1 生成 com.fund.assistant.json 并写 HKCU 注册表（见 DESIGN.md §6）。
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { openSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,10 +42,26 @@ function sendMessage(obj: unknown): void {
   process.stdout.write(Buffer.concat([head, body]));
 }
 
-const msg = (await readMessage()) as { cmd?: unknown } | null;
-if (msg?.cmd === 'start') {
-  // detached：独立于本 host 与扩展连接存活（sendNativeMessage 一次性，host 随即退出）。
-  // stdio 重定向到 server.log（隐藏窗口无控制台，日志落盘可查）
+/** 查 17521 端口监听进程 PID（Windows netstat）；无监听或查询失败返回 null。 */
+function findServerPid(): number | null {
+  let out: string;
+  try {
+    out = execSync('netstat -ano -p tcp', { encoding: 'utf8', windowsHide: true });
+  } catch {
+    return null;
+  }
+  for (const line of out.split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length >= 5 && cols[1]?.endsWith(':17521') && cols[3] === 'LISTENING') {
+      const pid = Number(cols[4]);
+      if (pid > 0) return pid;
+    }
+  }
+  return null;
+}
+
+/** detached 拉起服务（独立于本 host 与扩展连接存活）；stdio 重定向到 server.log（隐藏窗口无控制台，日志落盘可查）。 */
+function spawnServer(): number | undefined {
   const logFd = openSync(path.join(ROOT, 'server.log'), 'a');
   const child = spawn(process.execPath, ['--no-warnings', path.join(ROOT, 'src', 'server.ts')], {
     detached: true,
@@ -53,7 +70,26 @@ if (msg?.cmd === 'start') {
     windowsHide: true,
   });
   child.unref();
-  sendMessage({ ok: true, pid: child.pid });
+  return child.pid;
+}
+
+const msg = (await readMessage()) as { cmd?: unknown } | null;
+if (msg?.cmd === 'start') {
+  sendMessage({ ok: true, pid: spawnServer() });
+} else if (msg?.cmd === 'restart') {
+  // 只杀本服务端口（17521）的监听进程；杀完轮询确认端口释放（≤2s）再拉起，避免新进程 bind 冲突
+  const old = findServerPid();
+  if (old !== null) {
+    try {
+      execSync(`taskkill /F /PID ${old}`, { windowsHide: true });
+    } catch {
+      // 进程已退出则忽略
+    }
+    for (let i = 0; i < 20 && findServerPid() !== null; i++) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 100);
+    }
+  }
+  sendMessage({ ok: true, pid: spawnServer(), killed: old !== null });
 } else {
   sendMessage({ ok: false, error: 'unknown cmd' });
 }

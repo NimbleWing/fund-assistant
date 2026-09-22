@@ -31,6 +31,18 @@ header h1 { margin: 0; font-size: 15px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #8b8e98; flex: none; }
 .dot.online { background: #34d399; }
 .dot.err { background: #f87171; }
+#restart-btn {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: #8b8e98;
+  background: transparent;
+  border: 1px solid #3a3d47;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#restart-btn:hover { color: #e6e7ea; border-color: #565a68; }
 /* 持仓估值区：红涨绿跌（对齐管理页 --color-up/down） */
 #holdings {
   margin: 0 14px 14px;

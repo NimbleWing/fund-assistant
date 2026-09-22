@@ -1,6 +1,6 @@
-// native 启动编排单测：注入 send/check/wait，覆盖 成功上线 / host 拒绝 / 超时 三条路径。
+// native 启动/重启编排单测：注入 send/check/wait，覆盖 成功上线 / host 拒绝 / 超时 / 指令透传 路径。
 import { describe, expect, it, vi } from 'vitest';
-import { startServer } from '../../src/core/server-ctl.ts';
+import { restartServer, startServer, type SendNative } from '../../src/core/server-ctl.ts';
 import type { HealthResult } from '../../src/core/health.ts';
 
 const wait = vi.fn(async () => {});
@@ -36,5 +36,24 @@ describe('startServer', () => {
     expect(r.online).toBe(false);
     expect(r.error).toBe('服务未在 10 秒内上线');
     expect(check).toHaveBeenCalledTimes(10);
+  });
+});
+
+describe('restartServer', () => {
+  it('透传 restart 指令并轮询至上线', async () => {
+    const send = vi.fn<SendNative>(async () => ({ ok: true, pid: 456, killed: true }));
+    const check = vi.fn(async () => ({ online: true }) as HealthResult);
+    const r = await restartServer({ send, check, wait });
+    expect(vi.mocked(send).mock.calls[0]?.[1]).toEqual({ cmd: 'restart' });
+    expect(r.online).toBe(true);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('host 拒绝/无应答：直接失败并透出 error', async () => {
+    const check = vi.fn(async () => ({ online: true }) as HealthResult);
+    const r = await restartServer({ send: async () => ({ ok: false, error: 'unknown cmd' }), check, wait });
+    expect(r.online).toBe(false);
+    expect(r.error).toBe('unknown cmd');
+    expect(check).not.toHaveBeenCalled();
   });
 });
